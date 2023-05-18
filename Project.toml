@@ -1,13 +1,15 @@
 name = "TreeTransform"
 uuid = "d236873b-e432-4afc-a13d-4d3ddb9f1c9d"
 authors = ["Neal Gafter <neal@gafter.com> and contributors"]
-version = "1.0.0-DEV"
+version = "0.0.1"
+
+[deps]
+Rematch2 = "351a7294-9038-49b6-b9cf-e076b05af63f"
 
 [compat]
 julia = "1.5"
 
 [extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Rematch2"]
