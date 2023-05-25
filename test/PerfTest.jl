@@ -33,6 +33,7 @@ end
 function xform(node)
     @match2 node begin
         # identity elements
+        Const(-0.0)        => Const(0.0)
         Add(Const(0.0), x) => x
         Add(x, Const(0.0)) => x
         Sub(x, Const(0.0)) => x
@@ -41,8 +42,6 @@ function xform(node)
         Div(x, Const(1.0)) => x
         Mul(Const(0.0) && x, _) => x
         Mul(_, x && Const(0.0)) => x
-        Mul(Const(-0.0) && x, _) => x
-        Mul(_, x && Const(-0.0)) => x
         # constant folding
         Add(Const(x), Const(y)) => Const(x + y)
         Sub(Const(x), Const(y)) => Const(x - y)
@@ -64,7 +63,6 @@ function xform(node)
         Mul(x, k::Const)        => Mul(k, x)
         # Move negations up the tree
         Sub(Const(0.0), x)      => Neg(x)
-        Sub(Const(-0.0), x)     => Neg(x)
         Sub(Neg(x), y)          => Neg(Add(x, y))
         Mul(Neg(x), y)          => Neg(Mul(x, y))
         Mul(x, Neg(y))          => Neg(Mul(x, y))
@@ -106,7 +104,8 @@ expr = e22
 expected = Sub(Const(-63.0), Mul(Const(3.0), x))
 
 # Short-circuit transformations on constants.
-# TreeTransform.no_transform(node::Const) = true
+TreeTransform.no_transform(node::Float64) = true
+TreeTransform.no_transform(node::Variable) = true
 
 function simplify(node)
     bottom_up_rewrite(xform, node)
