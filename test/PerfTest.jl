@@ -112,15 +112,16 @@ function simplify(node)
     bottom_up_rewrite(xform, node)
 end
 
-function f(expr::Expression)
-    for i in 1:2000
+function f(expr::Expression, n::Int)
+    for i in 1:n
         simplify(expr)
     end
 end
 
 function performance_test(expr::Expression)
+    f(expr, 5)
     GC.gc()
-    @time f(expr)
+    @time f(expr, 2000)
     GC.gc()
 end
 
