@@ -1,5 +1,10 @@
 module PerfTest
 
+#
+# This file is not run during testing, but it is used as a metric of performance
+# for our tree transoformation package.
+#
+
 using TreeTransform
 using Rematch2
 
@@ -30,6 +35,7 @@ struct Variable <: Expression
     name::Symbol
 end
 
+# Our transformation function
 function xform(node)
     @match2 node begin
         # identity elements
@@ -70,6 +76,10 @@ function xform(node)
     end
 end
 
+# Short-circuit some nodes during transformation.
+TreeTransform.no_transform(node::Float64) = true
+TreeTransform.no_transform(node::Variable) = true
+
 x = Variable(:x)
 y = Variable(:y)
 z = Variable(:z)
@@ -102,10 +112,6 @@ expr = e22
 
 # The expected results of simplification
 expected = Sub(Const(-63.0), Mul(Const(3.0), x))
-
-# Short-circuit transformations on constants.
-TreeTransform.no_transform(node::Float64) = true
-TreeTransform.no_transform(node::Variable) = true
 
 function simplify(node)
     bottom_up_rewrite(xform, node)

@@ -1,8 +1,8 @@
 module TreeTransform
 
-export bottom_up_rewrite, no_transform
+using Rematch2: topological_sort
 
-include("TopologicalSort.jl")
+export bottom_up_rewrite, no_transform
 
 # const fields only suppored >= Julia 1.8
 macro _const(x)
@@ -165,7 +165,6 @@ function bottom_up_rewrite(
     result
 end
 
-# TODO: make this @generated
 function enumerate_children_names(type::Type{T}) where { T }
     # We only consider constructors that are not vararg, have no keyword arguments,
     # and whose parameter names all correspond to fields of the node type.
