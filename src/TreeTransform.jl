@@ -40,9 +40,6 @@ mutable struct RewriteContext
     # A function to enumerate all children of a node.
     @_const enumerate_children_fcn::Function
 
-    # A function to enumerate all children of a node that are not already fixed_points.
-    @_const enumerate_unprocessed_children_fcn::Function
-
     # A map from each node to a fixed point for that node.  A node that
     # is a fixed point would also appear in this map, and map to itself.
     @_const fixed_points::IdDict{Any, Any}
@@ -53,8 +50,7 @@ mutable struct RewriteContext
         max_transformations::Int,
         enumerate_children_fcn = enumerate_children)
         fixed_points = IdDict{Any, Any}()
-        enumerate_unprocessed_children_fcn = node -> enumerate_unprocessed_children(node, enumerate_children_fcn, fixed_points)
-        new(xform, detect_cycles, max_transformations, enumerate_children_fcn, enumerate_unprocessed_children_fcn, fixed_points);
+        new(xform, detect_cycles, max_transformations, enumerate_children_fcn, fixed_points);
     end
 end
 
@@ -153,13 +149,23 @@ function bottom_up_rewrite(
     # around a lot of arguments.
     ctx = RewriteContext(xform, detect_cycles, max_transformations * length(nodes))
 
-    # Process each node to compute its fixed-point.
-    fixed_points(ctx, nodes)
+    # Transform each node until it reaches a fixed-point.
+    any_changes = false
+    for node in reverse(nodes)
+        # println("processing node ($(objectid(node))) $node")
+        newnode = fixed_point(ctx, node, any_changes)
+        if newnode !== node
+            any_changes = true
+        end
+        @assert no_transform(node) || node in keys(ctx.fixed_points)
+        @assert no_transform(newnode) || newnode in keys(ctx.fixed_points)
+    end
 
     result = ctx.fixed_points[data]
     result
 end
 
+# TODO: make this @generated
 function enumerate_children_names(type::Type{T}) where { T }
     # We only consider constructors that are not vararg, have no keyword arguments,
     # and whose parameter names all correspond to fields of the node type.
@@ -230,6 +236,8 @@ end
 #     push!(code, result)
 #     result_expression
 # end
+
+# TODO: make this @generated
 function rebuild_node(ctx::RewriteContext, node::T) where { T }
     no_transform(node) && return node
     node_type = typeof(node)
@@ -241,57 +249,20 @@ function rebuild_node(ctx::RewriteContext, node::T) where { T }
     return any_changed ? node_type(cached_translations...) : node
 end
 
-function enumerate_unprocessed_children(
-        node::T,
-        enumerate_children_fcn::Function,
-        fixed_points::IdDict{Any, Any}) where { T }
-    filter(enumerate_children_fcn(node)) do c
-        get(fixed_points, c, :var"##an_unlikely_value##") !== c
-    end
-end
-
 # Transform a node by applying a single iteration of the transformation function
 function xform(ctx::RewriteContext, data)
+    # @assert !no_transform(data)
+
     if ctx.remaining_transformations > 0 && (ctx.remaining_transformations -= 1) == 0
         error("Too many transformations.  Perhaps there is an expansionary cycle in the rewrite rules.")
     end
     ctx.xform_fcn(data)
 end
 
-# Transform a node by applying a single iteration of the transformation function,
-# and then recursively transforming its newly built descendants until they each reach a
-# fixed-point.  The top node, data, may not be at a fixed point after this is called.
-function xformr(ctx::RewriteContext, data)
-    res = xform(ctx, data)
-    res === data && return res
-
-    # There may be new children.  We need to process descendants recursively until they
-    # have each reached a fixed-point.
-    nodes = topological_sort(ctx.enumerate_unprocessed_children_fcn, Any[data])
-    any_changes = fixed_points(ctx, dropfirst(nodes))
-
-    # Rebuild the node with its new children if necessary.
-    any_changes ? rebuild_node(ctx, res) : res
-end
-
-function fixed_points(ctx::RewriteContext, nodes)::Bool
-    # Transform each node until it reaches a fixed-point.
-    any_changes = false
-    for node in reverse(nodes)
-        # println("processing node ($(objectid(node))) $node")
-        newnode = fixed_point(ctx, node, any_changes)
-        if newnode !== node
-            any_changes = true
-        end
-        @assert no_transform(node) || node in keys(ctx.fixed_points)
-        @assert no_transform(newnode) || newnode in keys(ctx.fixed_points)
-    end
-
-    any_changes
-end
-
+#
 # Transform the given node until it and each of its descendants reach a fixed-point.
-function fixed_point(ctx::RewriteContext, node::T, any_changes::Bool) where { T }
+#
+function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
     no_transform(node) && return node
 
     # if we already know the fixed-point for this node, return it
@@ -300,7 +271,7 @@ function fixed_point(ctx::RewriteContext, node::T, any_changes::Bool) where { T 
     end
 
     rewritten = node
-    if any_changes
+    if rebuild
         # In case children may have been revised, rebuild the node.
         rewritten = rebuild_node(ctx, node)
         # println("  rebuilt to ($(objectid(rewritten))) $rewritten")
@@ -309,30 +280,26 @@ function fixed_point(ctx::RewriteContext, node::T, any_changes::Bool) where { T 
         end
     end
 
-    # Apply a single transformation to the node, and then recursively transform
-    # any new children to a fixed-point.  We don't apply further transformations
-    # to the top-level node recursively because we want to avoid unnecessarily
-    # deep recursion.  Instead we do it in a loop below.
-    rewritten2 = xformr(ctx, rewritten)
-
-    # If the transformation is an identity, then we are done.
-    if rewritten2 === rewritten
-        ctx.fixed_points[node] = rewritten
-        ctx.fixed_points[rewritten] = rewritten
-        # println("  rewritten to ($(objectid(node))) $node")
-        return rewritten
-    end
-
-    # Prepare a dupicate-detection set, if needed to detect non-expansionary
-    # cycles in the transformation.  We do this as late as possible, here, for perf.
     if ctx.detect_cycles
-        duplicate_set = Set{Any}(node, rewritten, rewritten2)
+        # Prepare a dupicate-detection set, if needed to detect non-expansionary
+        # cycles in the transformation.
+        duplicate_set = Set{Any}()
     end
-    rewritten = rewritten2
 
     # Continue transforming until we reach a fixed-point for this node
     while true
-        rewritten2 = xformr(ctx, rewritten)
+        if no_transform(rewritten)
+            ctx.fixed_points[node] = rewritten
+            ctx.fixed_points[rewritten] = rewritten
+            # println("  rewritten to ($(objectid(rewritten))) $rewritten")
+            return rewritten
+        end
+
+        # Apply a single transformation to the node, and then recursively transform
+        # any new children to a fixed-point.  We don't apply further transformations
+        # to the top-level node recursively because we want to avoid unnecessarily
+        # deep recursion.  Instead we do it this loop.
+        rewritten2 = xform(ctx, rewritten)
         if rewritten2 === rewritten
             ctx.fixed_points[node] = rewritten
             ctx.fixed_points[rewritten] = rewritten

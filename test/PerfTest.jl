@@ -111,6 +111,8 @@ function simplify(node)
     bottom_up_rewrite(xform, node)
 end
 
+@assert simplify(expr) == expected
+
 function f(expr::Expression, n::Int)
     for i in 1:n
         simplify(expr)
