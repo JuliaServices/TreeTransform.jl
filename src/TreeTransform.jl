@@ -15,6 +15,11 @@ end
 
 dropfirst(a) = a[2:length(a)]
 
+# # temporarily disable assertions in the implementation.
+# macro assert(x...)
+#     nothing
+# end
+
 """
     no_transform(node::Type) = true
 
@@ -142,6 +147,7 @@ function bottom_up_rewrite(
     # transformed the children.  However, when new child nodes are built, they
     # will have to be visited again.
     nodes = topological_sort(enumerate_children_fcn, Any[data])
+    @assert nodes[1] === data
 
     # We use a mutable struct to hold the state of the transformation.
     # This is a bit of a hack (says CoPilot), but it is the easiest way to pass
@@ -236,14 +242,13 @@ end
 #     result_expression
 # end
 
-# TODO: make this @generated
+# A non-generated version of rebuild_node for debugging
 function rebuild_node(ctx::RewriteContext, node::T) where { T }
     no_transform(node) && return node
     node_type = typeof(node)
-    member_names = enumerate_children_names(node_type)
-    length(member_names) == 0 && return node
-    fields = map(m -> getfield(node, m), member_names)
-    cached_translations = map(m -> no_transform(m) ? m : ctx.fixed_points[m], fields)
+    fields = enumerate_children(node)
+    length(fields) == 0 && return node
+    cached_translations = Any[no_transform(m) ? m : ctx.fixed_points[m] for m in fields]
     any_changed = any(map((m,t) -> m !== t, fields, cached_translations))
     return any_changed ? node_type(cached_translations...) : node
 end
@@ -274,9 +279,7 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
         # In case children may have been revised, rebuild the node.
         rewritten = rebuild_node(ctx, node)
         # println("  rebuilt to ($(objectid(rewritten))) $rewritten")
-        for child in ctx.enumerate_children_fcn(rewritten)
-            @assert no_transform(child) || child in keys(ctx.fixed_points)
-        end
+        @assert all(no_transform(child) || child in keys(ctx.fixed_points) for child in ctx.enumerate_children_fcn(rewritten))
     end
 
     if ctx.detect_cycles
