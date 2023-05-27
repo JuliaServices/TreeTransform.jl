@@ -8,7 +8,7 @@ OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 Rematch2 = "351a7294-9038-49b6-b9cf-e076b05af63f"
 
 [compat]
-julia = "1.5"
+julia = "1.6.2"
 
 [targets]
 test = ["Rematch2"]
