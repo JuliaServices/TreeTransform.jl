@@ -76,10 +76,6 @@ function xform(node)
     end
 end
 
-# Short-circuit some nodes during transformation.
-TreeTransform.no_transform(node::Float64) = true
-TreeTransform.no_transform(node::Variable) = true
-
 x = Variable(:x)
 y = Variable(:y)
 z = Variable(:z)

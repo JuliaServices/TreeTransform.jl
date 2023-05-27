@@ -82,9 +82,6 @@ end
         @test simplify(Add(x, Neg(y))) == Sub(x, y)
     end
 
-    # Short-circuit transformations on numbers.
-    TreeTransform.no_transform(node::Float64) = true
-
     @testset "Check some complex cases" begin
         x = Variable(:x)
         y = Variable(:y)

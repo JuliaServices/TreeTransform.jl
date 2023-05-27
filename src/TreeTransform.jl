@@ -1,8 +1,8 @@
 module TreeTransform
 
-using Rematch2: topological_sort
+using Rematch2: topological_sort, ImmutableVector
 
-export bottom_up_rewrite, no_transform
+export bottom_up_rewrite
 
 # const fields only suppored >= Julia 1.8
 macro _const(x)
@@ -15,17 +15,11 @@ end
 
 dropfirst(a) = a[2:length(a)]
 
-# # temporarily disable assertions in the implementation.
-# macro assert(x...)
-#     nothing
-# end
-
-"""
-    no_transform(node::Type) = true
-
-Override this function to return true for any types that should not be transformed.
-"""
-no_transform(node) = false
+# temporarily disable assertions in the implementation.
+macro devassert(x...)
+    # esc(:(@assert($x...)))
+    nothing
+end
 
 function enumerate_children end
 function enumerate_unprocessed_children end
@@ -163,25 +157,26 @@ function bottom_up_rewrite(
         if newnode !== node
             any_changes = true
         end
-        @assert no_transform(node) || node in keys(ctx.fixed_points)
-        @assert no_transform(newnode) || newnode in keys(ctx.fixed_points)
+        @devassert node in keys(ctx.fixed_points)
+        @devassert newnode in keys(ctx.fixed_points)
     end
 
     result = ctx.fixed_points[data]
     result
 end
 
-function enumerate_children_names(type::Type{T}) where { T }
+function enumerate_children_names(node_type::Type{T}) where { T }
     # We only consider constructors that are not vararg, have no keyword arguments,
     # and whose parameter names all correspond to fields of the node type.
     # We take the constructor(s) with the longest parameter list with these properties.
     # We throw an exception if there are more than one and they name different fields
     # or in different orders.
 
-    members = fieldnames(type)
+    members = fieldnames(node_type)
+    length(members) == 0 && return members
 
     # Search for constructor methods that have no keyword parameters, and are not varargs.
-    meths = Method[methods(type)...]
+    meths = Method[methods(node_type)...]
     meths = filter(m -> !m.isva && length(Base.kwarg_decl(m))==0, meths)
     # drop the implicit var"#self#" argument
     argnames_list = map(m -> dropfirst(Base.method_argnames(m)), meths)
@@ -201,7 +196,7 @@ function enumerate_children_names(type::Type{T}) where { T }
     else
         # no unique constructor, and not all fields are used.  Throw an error when
         # a node is encountered.
-        return :(error("Cannot infer an order in which to construct the children of $(type)."))
+        return :(error("Cannot infer an order in which to construct the children of $(node_type)."))
     end
 end
 
@@ -209,6 +204,7 @@ end
     # Since this is a @generated function, node is actually the type of the argument.
     node_type = node
     member_names = enumerate_children_names(node_type)
+    length(member_names) == 0 && return ImmutableVector{Any}([])
     :(Any[$((:(node.$m) for m in member_names)...)])
 end
 
@@ -223,47 +219,47 @@ end
 # If no children have changed, then return the original node.
 # A prerequisite to calling this function is that all children must
 # have had their fixed-point value recorded in ctx.fixed_points.
-# @generated function rebuild_node(ctx::RewriteContext, node::T) where { T }
-#     # Generate type-specific code to rebuild the node in case children have changed.
+@generated function rebuild_node(ctx::RewriteContext, node::T) where { T }
+    # Generate type-specific code to rebuild the node in case children have changed.
 
-#     # Note: since this is a @generated function, node is actually the type of the arg.
-#     node_type = node
-#     member_names = enumerate_children_names(node)
-#     length(member_names) == 0 && return :(node)
+    # Note: since this is a @generated function, node is actually the type of the node.
+    node_type = node
+    member_names = enumerate_children_names(node)
+    length(member_names) == 0 && return :node
 
-#     result_expression = Expr(:block)
-#     code = result_expression.args
+    result_expression = Expr(:block)
+    code = result_expression.args
 
-#     # Cache the fields and their translations in local variables.
-#     cached_translations = map(m -> Symbol(m, "'"), member_names)
-#     for (m, t) in zip(member_names, cached_translations)
-#         push!(code, :(local $m = getfield(node, $m)))
-#         push!(code, :(local $t = ctx.fixed_points[$m]))
-#     end
-#     # Determine if any have changed and, if so, reconstruct.
-#     any_changed = mapreduce(
-#         ((m, t),) -> :($m !== $t), (a,b) -> :($a || $b), zip(member_names, cached_translations))
-#     rebuild = :($node_type($(cached_translations)...))
-#     result = :($any_changed ? $rebuild : $node)
-#     push!(code, result)
-#     result_expression
-# end
+    # Cache the fields and their translations in local variables.
+    cached_translations = map(m -> Symbol(m, "'"), member_names)
+    for (m, t) in zip(member_names, cached_translations)
+        push!(code, :(local $m = node.$m))
+        push!(code, :(local $t = ctx.fixed_points[$m]))
+    end
+    # println("code so far: $result_expression")
+    # Determine if any have changed and, if so, reconstruct.
+    any_changed = mapreduce(
+        ((m, t),) -> :($m !== $t), (a,b) -> :($a || $b), zip(member_names, cached_translations))
+    # println("any_changed: $any_changed")
+    rebuild = :($node_type($(cached_translations...)))
+    # println("rebuild: $rebuild")
+    push!(code, :($any_changed ? $rebuild : node))
+    # println("rebuild_node(ctx, node::$node_type) = $result_expression")
+    result_expression
+end
 
 # A non-generated version of rebuild_node for debugging
-function rebuild_node(ctx::RewriteContext, node::T) where { T }
-    no_transform(node) && return node
-    node_type = typeof(node)
-    fields = enumerate_children(node)
-    length(fields) == 0 && return node
-    cached_translations = Any[no_transform(m) ? m : ctx.fixed_points[m] for m in fields]
-    any_changed = any(map((m,t) -> m !== t, fields, cached_translations))
-    return any_changed ? node_type(cached_translations...) : node
-end
+# function rebuild_node(ctx::RewriteContext, node::T) where { T }
+#     node_type = typeof(node)
+#     fields = enumerate_children(node)
+#     length(fields) == 0 && return node
+#     cached_translations = Any[ctx.fixed_points[m] for m in fields]
+#     any_changed = any(map((m,t) -> m !== t, fields, cached_translations))
+#     return any_changed ? node_type(cached_translations...) : node
+# end
 
 # Transform a node by applying a single iteration of the transformation function
 function xform(ctx::RewriteContext, data)
-    # @assert !no_transform(data)
-
     if ctx.remaining_transformations > 0 && (ctx.remaining_transformations -= 1) == 0
         error("Too many transformations.  Perhaps there is an expansionary cycle in the rewrite rules.")
     end
@@ -274,8 +270,6 @@ end
 # Transform the given node until it and each of its descendants reach a fixed-point.
 #
 function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
-    no_transform(node) && return node
-
     # if we already know the fixed-point for this node, return it
     if node in keys(ctx.fixed_points)
         return ctx.fixed_points[node]
@@ -286,7 +280,7 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
         # In case children may have been revised, rebuild the node.
         rewritten = rebuild_node(ctx, node)
         # println("  rebuilt to ($(objectid(rewritten))) $rewritten")
-        @assert all(no_transform(child) || child in keys(ctx.fixed_points) for child in ctx.enumerate_children_fcn(rewritten))
+        @devassert all(child in keys(ctx.fixed_points) for child in ctx.enumerate_children_fcn(rewritten))
     end
 
     if ctx.detect_cycles
@@ -297,13 +291,6 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
 
     # Continue transforming until we reach a fixed-point for this node
     while true
-        if no_transform(rewritten)
-            ctx.fixed_points[node] = rewritten
-            ctx.fixed_points[rewritten] = rewritten
-            # println("  rewritten to ($(objectid(rewritten))) $rewritten")
-            return rewritten
-        end
-
         # Apply a single transformation to the node, and then recursively transform
         # any new children to a fixed-point.  We don't apply further transformations
         # to the top-level node recursively because we want to avoid unnecessarily
