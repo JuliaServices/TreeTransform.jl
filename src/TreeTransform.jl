@@ -205,12 +205,19 @@ function enumerate_children_names(type::Type{T}) where { T }
     end
 end
 
-# TODO: make this @generated
-function enumerate_children(node::T) where { T }
-    node_type = typeof(node)
+@generated function enumerate_children(node::T) where { T }
+    # Since this is a @generated function, node is actually the type of the argument.
+    node_type = node
     member_names = enumerate_children_names(node_type)
-    Any[getfield(node, m) for m in member_names]
+    :(Any[$((:(node.$m) for m in member_names)...)])
 end
+
+# A non-generated version of enumerate_children for debugging
+# function enumerate_children(node::T) where { T }
+#     node_type = typeof(node)
+#     member_names = enumerate_children_names(node_type)
+#     Any[getfield(node, m) for m in member_names]
+# end
 
 # Rebuild the node with revised children, if any
 # If no children have changed, then return the original node.
