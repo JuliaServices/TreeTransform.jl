@@ -68,6 +68,13 @@ function xform(node)
     end
 end
 
+struct B1; x; y; end
+struct B2; x; y; end
+struct B3; x; y; end
+struct B4; x; y; end
+struct B5; x; y; end
+struct B6; x; y; end
+
 function simplify(node)
     bottom_up_rewrite(xform, node)
 end
@@ -119,4 +126,18 @@ end
         @test simplify(expr) == expected
     end
 
+    @testset "Check that recursive rewrites occur for new children" begin
+        function xform2(node)
+            @match2 node begin
+                B1(B2(x, y), B3(z, w)) => B5(B6(x, y), B6(z, w))
+                B4(x, y)               => 1
+                B5(1, 1)               => 2
+                B6(x, y)               => B4(x, y)
+                x                      => x
+            end
+        end
+        value = B1(B2(:a, :b), B3(:c, :d))
+        expected = 2
+        @test bottom_up_rewrite(xform2, value) == expected
+    end
 end

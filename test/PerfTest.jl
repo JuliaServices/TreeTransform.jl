@@ -36,7 +36,7 @@ struct Variable <: Expression
 end
 
 # Our transformation function
-function xform(node)
+function xform(@nospecialize(node))
     @match2 node begin
         # identity elements
         Const(-0.0)        => Const(0.0)
@@ -124,7 +124,7 @@ end
 function performance_test(expr::Expression)
     f(expr, 5)
     GC.gc()
-    @time f(expr, 2000)
+    @time f(expr, 20000)
     GC.gc()
 end
 

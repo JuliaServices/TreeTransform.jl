@@ -17,12 +17,9 @@ dropfirst(a) = a[2:length(a)]
 
 # temporarily disable assertions in the implementation.
 macro devassert(x...)
-    # esc(:(@assert($x...)))
+    # esc(:(@assert($(x...))))
     nothing
 end
-
-function enumerate_children end
-function enumerate_unprocessed_children end
 
 # The state of the transformation is maintained in an instance of this struct.
 mutable struct RewriteContext
@@ -36,9 +33,6 @@ mutable struct RewriteContext
     # throw an exception indicating a likely cycle.
     remaining_transformations::Int
 
-    # A function to enumerate all children of a node.
-    @_const enumerate_children_fcn::Function
-
     # A map from each node to a fixed point for that node.  A node that
     # is a fixed point would also appear in this map, and map to itself.
     @_const fixed_points::IdDict{Any, Any}
@@ -46,10 +40,9 @@ mutable struct RewriteContext
     function RewriteContext(
         xform::Function,
         detect_cycles::Bool,
-        max_transformations::Int,
-        enumerate_children_fcn = enumerate_children)
+        max_transformations::Int)
         fixed_points = IdDict{Any, Any}()
-        new(xform, detect_cycles, max_transformations, enumerate_children_fcn, fixed_points);
+        new(xform, detect_cycles, max_transformations, fixed_points);
     end
 end
 
@@ -129,7 +122,6 @@ child nodes.  **The way to do this is not yet defined.**
 function bottom_up_rewrite(
     xform::Function,
     data;
-    enumerate_children_fcn = enumerate_children,
     detect_cycles::Bool = false,
     max_transformations::Int = 0
 )
@@ -140,7 +132,7 @@ function bottom_up_rewrite(
     # That way, when we get to higher levels in the dag, we will have already
     # transformed the children.  However, when new child nodes are built, they
     # will have to be visited again.
-    nodes = topological_sort(enumerate_children_fcn, Any[data])
+    nodes = topological_sort(enumerate_children, Any[data])
     @assert nodes[1] === data
 
     # We use a mutable struct to hold the state of the transformation.
@@ -160,6 +152,7 @@ function bottom_up_rewrite(
         @devassert node in keys(ctx.fixed_points)
         @devassert newnode in keys(ctx.fixed_points)
     end
+    # transformed = fixed_point(ctx, data, true)
 
     result = ctx.fixed_points[data]
     result
@@ -233,8 +226,11 @@ end
     # Cache the fields and their translations in local variables.
     cached_translations = map(m -> Symbol(m, "'"), member_names)
     for (m, t) in zip(member_names, cached_translations)
-        push!(code, :(local $m = node.$m))
-        push!(code, :(local $t = ctx.fixed_points[$m]))
+        push!(code, quote
+            local $m = node.$m
+            # local $t = ctx.fixed_points[$m]
+            local $t = $fixed_point(ctx, $m, $(true))
+        end)
     end
     # println("code so far: $result_expression")
     # Determine if any have changed and, if so, reconstruct.
@@ -243,7 +239,13 @@ end
     # println("any_changed: $any_changed")
     rebuild = :($node_type($(cached_translations...)))
     # println("rebuild: $rebuild")
-    push!(code, :($any_changed ? $rebuild : node))
+    push!(code, quote
+        if $any_changed
+            $rebuild
+        else
+            node
+        end
+    end)
     # println("rebuild_node(ctx, node::$node_type) = $result_expression")
     result_expression
 end
@@ -259,7 +261,7 @@ end
 # end
 
 # Transform a node by applying a single iteration of the transformation function
-function xform(ctx::RewriteContext, data)
+function xform(ctx::RewriteContext, @nospecialize(data))
     if ctx.remaining_transformations > 0 && (ctx.remaining_transformations -= 1) == 0
         error("Too many transformations.  Perhaps there is an expansionary cycle in the rewrite rules.")
     end
@@ -275,12 +277,13 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
         return ctx.fixed_points[node]
     end
 
+    rebuild = true
     rewritten = node
     if rebuild
         # In case children may have been revised, rebuild the node.
         rewritten = rebuild_node(ctx, node)
         # println("  rebuilt to ($(objectid(rewritten))) $rewritten")
-        @devassert all(child in keys(ctx.fixed_points) for child in ctx.enumerate_children_fcn(rewritten))
+        @devassert all(child in keys(ctx.fixed_points) for child in enumerate_children(rewritten))
     end
 
     if ctx.detect_cycles
@@ -302,6 +305,7 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
             # println("  rewritten to ($(objectid(rewritten))) $rewritten")
             return rewritten
         end
+        rewritten2 = rebuild_node(ctx, rewritten2)
         if ctx.detect_cycles
             if rewritten2 in duplicate_set
                 error("Cycle detected in bottom_up_rewrite")
