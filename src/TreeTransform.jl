@@ -29,9 +29,19 @@ mutable struct RewriteContext
     # If true, we are detecting cycles of the first kind.
     @_const detect_cycles::Bool
 
-    # If positive, the number of individual node transformations before we
+    # If positive, the number of transformations per node after which we
     # throw an exception indicating a likely cycle.
-    remaining_transformations::Int
+    @_const max_transformations_per_node::Int
+
+    # If positive, the number of transformations (total) after which we
+    # throw an exception indicating a likely cycle.  To avoid counting the
+    # nodes, this is computed only after we have performed 100 transformations.
+    max_transformations::Int
+
+    # Number of transformations performed so far.
+    transformation_count::Int
+
+    @_const root_node::Any
 
     # A map from each node to a fixed point for that node.  A node that
     # is a fixed point would also appear in this map, and map to itself.
@@ -40,9 +50,10 @@ mutable struct RewriteContext
     function RewriteContext(
         xform::Function,
         detect_cycles::Bool,
-        max_transformations::Int)
+        max_transformations_per_node::Int,
+        root_node::Any)
         fixed_points = IdDict{Any, Any}()
-        new(xform, detect_cycles, max_transformations, fixed_points);
+        new(xform, detect_cycles, max_transformations_per_node, 0, 0, root_node, fixed_points);
     end
 end
 
@@ -51,13 +62,26 @@ end
         xform::Function,
         data;
         detect_cycles::Bool = false,
-        max_transformations::Int = 0)
+        max_transformations::Int = 5,
+        recursive::Bool = true)
 
 Given a data structure (`data`) that does not contain cycles, we
 apply a given transformation function (`xform`) at every node, and
 return a new data structure with all possible transformations
 applied.  Note that the result is a data structure in which every
 node is a fixed-point of the transformation function provided.
+
+There are two strategies for reaching the fixed-point.  One strategy
+is recursive, by postorder traversal; we first find the fixed point
+of each child (recursively), and then repeatedly apply transformations
+to the parent node until it is a fixed point.  The other strategy is
+iterative, by topological sort; we process nodes one by one from
+the leaves to the root, and repeatedly apply transformations to each
+node until it is a fixed point.  In either case, when the transformation
+function produces a new node, we apply the transformation function to
+the new node as well using the recursive strategy.  We use a cache so
+that once we have computed the fixed point of a node, we do not need
+to recompute it.
 
 By default, we do not detect cycles in the applied transformations.
 There are two kinds of cycles that can occur: first, if some sequence
@@ -70,12 +94,11 @@ We offer two mechanisms to detect cycles.  First, we can detect the
 simple cycles of the first kind automatically, but at additional
 cost.  You can enable this by setting `detect_cycles` to `true`.
 Second, you can give a limit on the number of transformations to
-apply per node in the original data structure.  You can enable this
-by setting `max_transformations` to a positive integer.  For example,
-you set `max_transformations` to 3 and the original data structure
-contained 100 nodes, then we will only apply 300 distinct non-identity
-node transformations anywhere in the graph before throwing an
-exception.
+apply, per node, in the original data structure.  You can enable this
+by setting `max_transformations_per_node` to a positive integer.  If you set
+`max_transformations_per_node` to 3 and the original data structure contained
+100 nodes, then we will throw an exception after performing a total
+of 300 calls to the transformation function.
 
 The `transform` function should take a single argument, the node
 to transform, and return a transformed version of that node.  The
@@ -123,39 +146,69 @@ function bottom_up_rewrite(
     xform::Function,
     data;
     detect_cycles::Bool = false,
-    max_transformations::Int = 0
-)
-
-    # Build a work queue as a list of nodes to be transformed.  Since we are
-    # doing a bottom-up transformation, we start with the leaves of the graph
-    # as determined by a topological_sort of the nodes reachable from the root.
-    # That way, when we get to higher levels in the dag, we will have already
-    # transformed the children.  However, when new child nodes are built, they
-    # will have to be visited again.
-    nodes = topological_sort(enumerate_children, Any[data])
-    @assert nodes[1] === data
+    max_transformations_per_node::Int = 5,
+    recursive::Bool = true)
 
     # We use a mutable struct to hold the state of the transformation.
     # This is a bit of a hack (says CoPilot), but it is the easiest way to pass
     # around the state of the transformation without having to pass
     # around a lot of arguments.
-    ctx = RewriteContext(xform, detect_cycles, max_transformations * length(nodes))
+    ctx = RewriteContext(xform, detect_cycles, max_transformations_per_node, data)
 
-    # Transform each node until it reaches a fixed-point.
-    any_changes = false
-    for node in reverse(nodes)
-        # println("processing node ($(objectid(node))) $node")
-        newnode = fixed_point(ctx, node, any_changes)
-        if newnode !== node
-            any_changes = true
+    if recursive
+
+        _ = fixed_point(ctx, data, true)
+    else
+        # Use an iterative version to avoid stack overflow.  It is slower due to the
+        # need to start with a topological sort.
+        # TODO: we should use this as a strategy automatically when we detect deep graphs.
+        # TODO: incorporate the topological sort into the code, below, so that we do not
+        # have to actually build the resulting topologically sorted list of nodes.
+
+        # Build a work queue as a list of nodes to be transformed.  Since we are
+        # doing a bottom-up transformation, we start with the leaves of the graph
+        # as determined by a topological_sort of the nodes reachable from the root.
+        # That way, when we get to higher levels in the dag, we will have already
+        # transformed the children.  However, when new child nodes are built, they
+        # will have to be visited again, recursively.  This avoids the most likely
+        # source of stack overflow.
+        nodes = topological_sort(enumerate_children, Any[data])
+        ctx.max_transformations = max_transformations_per_node * length(nodes)
+        @assert nodes[1] === data
+
+        # Transform each node until it reaches a fixed-point.
+        any_changes = false
+        for node in reverse(nodes)
+            # println("processing node ($(objectid(node))) $node")
+            newnode = fixed_point(ctx, node, any_changes)
+            if newnode !== node
+                any_changes = true
+            end
+            @devassert node in keys(ctx.fixed_points)
+            @devassert newnode in keys(ctx.fixed_points)
         end
-        @devassert node in keys(ctx.fixed_points)
-        @devassert newnode in keys(ctx.fixed_points)
     end
-    # transformed = fixed_point(ctx, data, true)
 
     result = ctx.fixed_points[data]
     result
+end
+
+# Count the number of nodes reachable from the root node.
+function count_reachable_nodes(root::T) where { T }
+    counted = Set{Any}()
+
+    # Note that this is recursive.  If that becomes a problem, we can
+    # rewrite it iteratively.
+    function count(node::T) where { T }
+        node in counted && return
+        push!(counted, node)
+        for child in enumerate_children(node)
+            count(child)
+        end
+    end
+
+    count(root)
+    length(counted)
 end
 
 function enumerate_children_names(node_type::Type{T}) where { T }
@@ -260,10 +313,20 @@ end
 #     return any_changed ? node_type(cached_translations...) : node
 # end
 
+#
 # Transform a node by applying a single iteration of the transformation function
+#
 function xform(ctx::RewriteContext, @nospecialize(data))
-    if ctx.remaining_transformations > 0 && (ctx.remaining_transformations -= 1) == 0
-        error("Too many transformations.  Perhaps there is an expansionary cycle in the rewrite rules.")
+    ctx.transformation_count += 1
+    if ctx.max_transformations_per_node > 0 && ctx.transformation_count > 100
+        if ctx.max_transformations == 0
+            # compute the maximum number of transformations
+            ctx.max_transformations =
+                ctx.max_transformations_per_node * count_reachable_nodes(ctx.root_node)
+        end
+        if ctx.transformation_count > ctx.max_transformations
+            error("Too many ($(ctx.transformation_count)) transformations.  Perhaps there is a cycle in the rewrite rules.")
+        end
     end
     ctx.xform_fcn(data)
 end
@@ -277,7 +340,6 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
         return ctx.fixed_points[node]
     end
 
-    rebuild = true
     rewritten = node
     if rebuild
         # In case children may have been revised, rebuild the node.

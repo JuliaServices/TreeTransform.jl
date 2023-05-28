@@ -124,7 +124,7 @@ end
 function performance_test(expr::Expression)
     f(expr, 5)
     GC.gc()
-    @time f(expr, 20000)
+    @time f(expr, 200000)
     GC.gc()
 end
 
