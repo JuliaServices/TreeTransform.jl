@@ -133,14 +133,6 @@ E-graph approach can handle cycles, but it is more expensive and
 requires more work to set up. See also "Metatheory.jl: Fast and
 Elegant Algebraic Computation in Julia with Extensible Equality
 Saturation" by Alessandro Cheli, 2021, <https://arxiv.org/abs/2102.07888>
-
-You can specialize the behavior for some nodes, e.g. to force child
-nodes to be visited in a particular order.  For example, if you
-have a node that represents the conjunction of two boolean expressions,
-you might want to force the left child to be visited before the
-right child, and then if the left child is `false`, you can skip
-the right child.  You can also use this to skip rewriting of certain
-child nodes.  **The way to do this is not yet defined.**
 """
 function bottom_up_rewrite(
     xform::Function,
@@ -372,7 +364,7 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
             if rewritten2 in duplicate_set
                 error("Cycle detected in bottom_up_rewrite")
             end
-            duplicate_set.add(rewritten2)
+            push!(duplicate_set, rewritten2)
         end
         rewritten = rewritten2
     end
