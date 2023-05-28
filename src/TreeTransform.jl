@@ -203,6 +203,9 @@ function count_reachable_nodes(root::T) where { T }
     length(counted)
 end
 
+# Select a set of field names for a given node type, so that we can fetch the fields
+# and then use a positional constructor to build a new equivalent node.  This is needed
+# in order to revise a node based on the results of revising its children.
 function enumerate_children_names(node_type::Type{T}) where { T }
     # We only consider constructors that are not vararg, have no keyword arguments,
     # and whose parameter names all correspond to fields of the node type.
@@ -255,8 +258,6 @@ end
 
 # Rebuild the node with revised children, if any
 # If no children have changed, then return the original node.
-# A prerequisite to calling this function is that all children must
-# have had their fixed-point value recorded in ctx.fixed_points.
 @generated function rebuild_node(ctx::RewriteContext, node::T) where { T }
     # Generate type-specific code to rebuild the node in case children have changed.
 
@@ -273,17 +274,14 @@ end
     for (m, t) in zip(member_names, cached_translations)
         push!(code, quote
             local $m = node.$m
-            # local $t = ctx.fixed_points[$m]
             local $t = $fixed_point(ctx, $m, $(true))
         end)
     end
-    # println("code so far: $result_expression")
+
     # Determine if any have changed and, if so, reconstruct.
     any_changed = mapreduce(
         ((m, t),) -> :($m !== $t), (a,b) -> :($a || $b), zip(member_names, cached_translations))
-    # println("any_changed: $any_changed")
     rebuild = :($node_type($(cached_translations...)))
-    # println("rebuild: $rebuild")
     push!(code, quote
         if $any_changed
             $rebuild
@@ -291,7 +289,7 @@ end
             node
         end
     end)
-    # println("rebuild_node(ctx, node::$node_type) = $result_expression")
+
     result_expression
 end
 
