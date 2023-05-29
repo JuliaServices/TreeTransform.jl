@@ -2,7 +2,15 @@
 
 julia_version = "1.8.2"
 manifest_format = "2.0"
-project_hash = "7c419dd7feb30af60fe5ed8130528c314f4b2802"
+project_hash = "779eed1eeab792fbed17c8ed389ea09c634207db"
+
+[[deps.AutoHashEqualsCached]]
+deps = ["Rematch"]
+git-tree-sha1 = "084e3b2269898e10e82f5b5390730df71e1afc2d"
+repo-rev = "mutable"
+repo-url = "https://github.com/gafter/AutoHashEqualsCached.jl"
+uuid = "887ad303-ad3a-4bc5-965e-507c643d6945"
+version = "0.1.1"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
@@ -25,6 +33,12 @@ version = "1.6.0"
 [[deps.Random]]
 deps = ["SHA", "Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[[deps.Rematch]]
+deps = ["MacroTools"]
+git-tree-sha1 = "dbe7e09d86545b2e78b9307559f2560744f34db4"
+uuid = "bfecab0d-fd4d-5014-a23f-56c5fae6447a"
+version = "0.3.3"
 
 [[deps.Rematch2]]
 deps = ["MacroTools", "OrderedCollections"]

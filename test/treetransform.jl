@@ -1,5 +1,6 @@
 using Rematch2: @match2
 using TreeTransform: bottom_up_rewrite, TreeTransform
+using AutoHashEqualsCached
 
 abstract type Expression end
 struct Add <: Expression
@@ -117,12 +118,14 @@ end
     @test simplify(expr) == expected
 end
 
-struct B1; x; y; end
-struct B2; x; y; end
-struct B3; x; y; end
-struct B4; x; y; end
-struct B5; x; y; end
-struct B6; x; y; end
+# We make a couple of these mutable so that equality can have a fast path
+# using ===, making the expansionary test below run in a reasonable time.
+@auto_hash_equals mutable struct B1; x; y; end
+@auto_hash_equals_cached struct B2; x; y; end
+@auto_hash_equals mutable struct B3; x; y; end
+@auto_hash_equals mutable struct B4; x; y; end
+@auto_hash_equals_cached struct B5; x; y; end
+@auto_hash_equals_cached struct B6; x; y; end
 
 @testset "Check that recursive rewrites occur for new children" begin
     function xform2(node)

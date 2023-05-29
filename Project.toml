@@ -4,6 +4,7 @@ authors = ["Neal Gafter <neal@gafter.com> and contributors"]
 version = "0.0.1"
 
 [deps]
+AutoHashEqualsCached = "887ad303-ad3a-4bc5-965e-507c643d6945"
 OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 Rematch2 = "351a7294-9038-49b6-b9cf-e076b05af63f"
 
