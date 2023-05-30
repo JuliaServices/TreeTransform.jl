@@ -249,6 +249,10 @@ end
     :(Any[$((:(node.$m) for m in member_names)...)])
 end
 
+function enumerate_children(node::AbstractArray{T}) where { T }
+    return vcat(node)
+end
+
 # A non-generated version of enumerate_children for debugging
 # function enumerate_children(node::T) where { T }
 #     node_type = typeof(node)
@@ -281,16 +285,31 @@ end
     # Determine if any have changed and, if so, reconstruct.
     any_changed = mapreduce(
         ((m, t),) -> :($m !== $t), (a,b) -> :($a || $b), zip(member_names, cached_translations))
+
+    # The following may not work in Julia 1.10 and later.  The constructor method of
+    # of the node's type may not be defined in the world age at which this function
+    # was defined.
     rebuild = :($node_type($(cached_translations...)))
     push!(code, quote
         if $any_changed
-            $rebuild
+            result = $rebuild
+            # println("  rebuilt $node ===> $result")
+            result
         else
             node
         end
     end)
 
     result_expression
+end
+
+function rebuild_node(ctx::RewriteContext, node::AbstractArray{T}) where { T }
+    length(node) == 0 && return node
+    x = f -> fixed_point(ctx, f, true)
+    rewritten = Base.Broadcast.broadcast(x, node)
+    all(((a, b),) -> a == b, zip(node, rewritten)) && return node
+    # println("  rebuilt $node ===> $rewritten")
+    return rewritten
 end
 
 # A non-generated version of rebuild_node for debugging
@@ -313,12 +332,16 @@ function xform(ctx::RewriteContext, @nospecialize(data))
             # compute the maximum number of transformations
             ctx.max_transformations =
                 ctx.max_transformations_per_node * count_reachable_nodes(ctx.root_node)
-        end
+                # println("  Reachable Nodes: $(count_reachable_nodes(ctx.root_node))")
+                # println("  Maximum number of transformations: $(ctx.max_transformations)")
+            end
         if ctx.transformation_count > ctx.max_transformations
             error("Too many ($(ctx.transformation_count)) transformations.  Perhaps there is a cycle in the rewrite rules.")
         end
     end
-    ctx.xform_fcn(data)
+    result = ctx.xform_fcn(data)
+    # println("  [$(ctx.transformation_count)] xform($data) ===> $result")
+    result
 end
 
 #
@@ -334,7 +357,6 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
     if rebuild
         # In case children may have been revised, rebuild the node.
         rewritten = rebuild_node(ctx, node)
-        # println("  rebuilt to ($(objectid(rewritten))) $rewritten")
         @devassert all(child in keys(ctx.fixed_points) for child in enumerate_children(rewritten))
     end
 

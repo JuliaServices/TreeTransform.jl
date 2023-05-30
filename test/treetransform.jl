@@ -4,9 +4,10 @@ using AutoHashEqualsCached
 
 abstract type Expression end
 struct Add <: Expression
-    x::Expression
-    y::Expression
+    s::Vector{Expression}
 end
+Base.:(==)(x::Add, y::Add) = x.s == y.s
+Add(e::Expression...) = Add(Expression[e...])
 struct Sub <: Expression
     x::Expression
     y::Expression
@@ -33,8 +34,8 @@ function xform(node)
     @match2 node begin
         # identity elements
         Const(-0.0)        => Const(0.0)
-        Add(Const(0.0), x) => x
-        Add(x, Const(0.0)) => x
+        Add([Const(0.0), x]) => x
+        Add([x, Const(0.0)]) => x
         Sub(x, Const(0.0)) => x
         Mul(Const(1.0), x) => x
         Mul(x, Const(1.0)) => x
@@ -42,7 +43,7 @@ function xform(node)
         Mul(Const(0.0) && x, _) => x
         Mul(_, x && Const(0.0)) => x
         # constant folding
-        Add(Const(x), Const(y)) => Const(x + y)
+        Add([Const(x), Const(y)]) => Const(x + y)
         Sub(Const(x), Const(y)) => Const(x - y)
         Neg(Const(x))           => Const(-x)
         Mul(Const(x), Const(y)) => Const(x * y)
@@ -51,14 +52,14 @@ function xform(node)
         Sub(x, x)               => Const(0.0)
         Neg(Neg(x))             => x
         Sub(x, Neg(y))          => Add(x, y)
-        Add(x, Neg(y))          => Sub(x, y)
-        Add(Neg(x), y)          => Sub(y, x)
+        Add([x, Neg(y)])          => Sub(x, y)
+        Add([Neg(x), y])          => Sub(y, x)
         Neg(Sub(x, y))          => Sub(y, x)
-        Add(x, x)               => Mul(x, Const(2.0))
-        Add(x, Mul(Const(k), x))=> Mul(x, Const(k + 1))
-        Add(Mul(Const(k), x), x)=> Mul(x, Const(k + 1))
+        Add([x, x])               => Mul(x, Const(2.0))
+        Add([x, Mul(Const(k), x)])=> Mul(x, Const(k + 1))
+        Add([Mul(Const(k), x), x])=> Mul(x, Const(k + 1))
         # Move constants to the left
-        Add(x, k::Const)        => Add(k, x)
+        Add([x, k::Const])        => Add(k, x)
         Mul(x, k::Const)        => Mul(k, x)
         # Move negations up the tree
         Sub(Const(0.0), x)      => Neg(x)
