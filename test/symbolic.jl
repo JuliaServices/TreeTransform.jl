@@ -10,17 +10,17 @@ function xform(node)
         Expr(:call, [:+, a, b, c, xs...]) => Expr(:call, :+, :($a + $b), c, xs...)
         Expr(:call, [:^, a, 2]) => :($a * $a)
 
-        # (a + b) * c = a * c + b * c
-        Expr(:call, [:*, Expr(:call, [:+, a, b]), c]) => :($a * $c + $b * $c)
-
         # a + (b + c) = (a + b) + c
         Expr(:call, [:+, a, Expr(:call, [:+, b, c])]) => :(($a + $b) + $c)
 
         # a * (b * c) = (a * b) * c
         Expr(:call, [:*, a, Expr(:call, [:*, b, c])]) => :(($a * $b) * $c)
 
-        # (x+y)*z	= x*z+y*z;	x*(y+z)	= x*y+x*z;
-        # x+(y+z)	= (x+y)+z;	x*(y*z)	= (x*y)*z;
+        # (a + b) * c = (a * c) + (b * c)
+        Expr(:call, [:*, Expr(:call, [:+, a, b]), c]) => :($a * $c + $b * $c)
+
+        # a * (b + c) = (a * b) + (a * c)
+        Expr(:call, [:*, a, Expr(:call, [:+, b, c])]) => :($a * $b + $a * $c)
 
         x => x
     end
@@ -40,6 +40,7 @@ end
     @test simplify(:(5 + 3 + 100 + 1000)) == 1108
     @test simplify(:(x + (y + z))) == :((x + y) + z)
     @test simplify(:(x * (y * z))) == :((x * y) * z)
+    @test simplify(:(x * (y + z))) == :((x * y) + (x * z))
     @test simplify(:(a + b + c + d)) == :(((a + b) + c) + d)
 end
 
