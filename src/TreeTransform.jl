@@ -241,6 +241,10 @@ function enumerate_children_names(node_type::Type{T}) where { T }
     end
 end
 
+function enumerate_children_names(node_type::Type{Expr})
+    return [:head, :args]
+end
+
 @generated function enumerate_children(node::T) where { T }
     # Since this is a @generated function, node is actually the type of the argument.
     node_type = node
@@ -301,6 +305,16 @@ end
     end)
 
     result_expression
+end
+
+function rebuild_node(ctx::RewriteContext, node::Expr)
+    head = fixed_point(ctx, node.head, true)
+    args = fixed_point(ctx, node.args, true)
+    if (head === node.head) && (args === node.args)
+        return node
+    else
+        return Expr(node.head, args...)
+    end
 end
 
 function rebuild_node(ctx::RewriteContext, node::AbstractArray{T}) where { T }

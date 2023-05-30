@@ -180,3 +180,20 @@ end
     @test_throws ErrorException bottom_up_rewrite(xform3, value;
         :max_transformations_per_node => 5, :detect_cycles => false)
 end
+
+@testset "Check some Expr simplification" begin
+    function xform4(node)
+        @match2 node begin
+            Expr(:call, [:+, a::Number, b::Number]) => a + b
+            Expr(:call, [:+, a, b, c]) => Expr(:call, :+, :($a + $b), c)
+            x => x
+        end
+    end
+
+    function simplify(node)
+        bottom_up_rewrite(xform4, node)
+    end
+
+    @test simplify(:(5 + 3)) == :(8)
+    @test simplify(:(5 + 3 + 100)) == :(108)
+end
