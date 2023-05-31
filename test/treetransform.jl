@@ -123,13 +123,10 @@ end
 # using ===, making the expansionary test below run in a reasonable time.
 @auto_hash_equals mutable struct B1; x; y; end
 @auto_hash_equals_cached struct B2; x; y; end
-TreeTransform.fieldnames(::Type{B2}) = (:x, :y)
 @auto_hash_equals mutable struct B3; x; y; end
 @auto_hash_equals mutable struct B4; x; y; end
 @auto_hash_equals_cached struct B5; x; y; end
-TreeTransform.fieldnames(::Type{B5}) = (:x, :y)
 @auto_hash_equals_cached struct B6; x; y; end
-TreeTransform.fieldnames(::Type{B6}) = (:x, :y)
 
 @testset "Check that recursive rewrites occur for new children" begin
     function xform2(node)

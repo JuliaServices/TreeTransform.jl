@@ -8,12 +8,12 @@ project_hash = "a0617606672f664573bd53954c8642bbe64db6fc"
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
 [[deps.AutoHashEqualsCached]]
-deps = ["Rematch"]
-git-tree-sha1 = "2324aa3eceef28c5fe7f5a087ab1a958099d650c"
-repo-rev = "main"
-repo-url = "https://github.com/JuliaServices/AutoHashEqualsCached.jl.git"
+deps = ["Rematch2"]
+git-tree-sha1 = "08a66020a5cf8a01eaad7aa597e522bcbeca4619"
+repo-rev = "specified-hash"
+repo-url = "https://github.com/gafter/AutoHashEqualsCached.jl"
 uuid = "887ad303-ad3a-4bc5-965e-507c643d6945"
-version = "0.1.1"
+version = "0.1.5"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
@@ -54,17 +54,11 @@ version = "1.6.0"
 deps = ["SHA", "Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
-[[deps.Rematch]]
-deps = ["MacroTools"]
-git-tree-sha1 = "dbe7e09d86545b2e78b9307559f2560744f34db4"
-uuid = "bfecab0d-fd4d-5014-a23f-56c5fae6447a"
-version = "0.3.3"
-
 [[deps.Rematch2]]
 deps = ["MacroTools", "OrderedCollections"]
-git-tree-sha1 = "5228c5a0432e1b73cbb0117d3c59aa73ff158304"
-repo-rev = "main"
-repo-url = "https://github.com/JuliaServices/Rematch2.jl.git"
+git-tree-sha1 = "559b870a1f3c7f3b6caf6a9daa1bb773d6d391b2"
+repo-rev = "fieldnames"
+repo-url = "https://github.com/gafter/Rematch2.jl"
 uuid = "351a7294-9038-49b6-b9cf-e076b05af63f"
 version = "0.2.6"
 

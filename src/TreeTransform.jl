@@ -2,6 +2,7 @@ module TreeTransform
 
 using StaticArrays
 using Rematch2: topological_sort
+import Rematch2: fieldnames
 
 export bottom_up_rewrite
 
@@ -192,14 +193,6 @@ function bottom_up_rewrite(
 
     result = ctx.fixed_points[data]
     result
-end
-
-#
-# Users may override this to hide fields that should not be considered
-# either for transformation or for passing to the constructor.
-#
-function fieldnames(x::Type{T}) where { T }
-    Base.fieldnames(x)
 end
 
 # Count the number of nodes reachable from the root node.
