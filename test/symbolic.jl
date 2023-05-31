@@ -12,9 +12,9 @@ struct Deriv
 end
 
 function xform(node)
-    println("--------------------")
-    dump(node)
-    @match2 node begin
+    result = @match2 node begin
+        Expr(:block, e) => e
+
         Expr(:call, [:+, a::Number, b::Number]) => a + b
 
         Expr(:call, [:*, a::Number, b::Number]) => a * b
@@ -22,8 +22,8 @@ function xform(node)
         Expr(:call, [:*, 0, a]) => 0
         Expr(:call, [:+, 0, a]) => a
 
-        Expr(:call, [:+, a, b::Number]) => :(b + a)
-        Expr(:call, [:*, a, b::Number]) => :(b * a)
+        Expr(:call, [:+, a, b::Number]) => :($b + $a)
+        Expr(:call, [:*, a, b::Number]) => :($b * $a)
 
         # a + b + c + ... => (a + b) + c + ....
         Expr(:call, [:+, a, b, c, xs...]) => Expr(:call, :+, :($a + $b), c, xs...)
@@ -47,14 +47,25 @@ function xform(node)
         Deriv(x, Expr(:call, [:+, a, b])) => :($(Deriv(x, a)) + $(Deriv(x, b)))
 
         # deriv x (a * b) => a * deriv x b + b * diff x a
+        Deriv(x, Expr(:call, [:*, a, b])) => :($a * $(Deriv(x, b)) + $b * $(Deriv(x, a)))
+
         # deriv x x => 1
         Deriv(x, x::Symbol) => 1
 
         # deriv x y => 0
         Deriv(x, y::Symbol) where x != y => 0
 
+        # deriv x c => 0
+        Deriv(x, y::Number) => 0
+
         x => x
     end
+
+    # println("-------------------- input")
+    # dump(node)
+    # println("               ---- output")
+    # dump(result)
+    return result
 end
 
 function simplify(node)
@@ -72,8 +83,11 @@ end
     @test simplify(:(x * (0 + y))) == :(x * y)
     @test simplify(:(a + b + c + d)) == :(((a + b) + c) + d)
 
-    @test simplify(Deriv(:a, :a)) == 1
-    @test simplify(Deriv(:a, :(a + b))) == 1
+    @test simplify(Deriv(:x, :x)) == 1
+    @test simplify(Deriv(:x, :(x + y))) == 1
+    @test simplify(Deriv(:x, :(x + y))) == 1
+    @test simplify(Deriv(:x, :(5 * x))) == 5
+    @test simplify(Deriv(:x, :(5 * x + 10))) == 5
 end
 
 end
