@@ -2,18 +2,33 @@
 
 julia_version = "1.8.2"
 manifest_format = "2.0"
-project_hash = "779eed1eeab792fbed17c8ed389ea09c634207db"
+project_hash = "48fa1d666a82a5dd15cc880fb8473fed1b95ea28"
+
+[[deps.Artifacts]]
+uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
 [[deps.AutoHashEqualsCached]]
 deps = ["Rematch"]
-git-tree-sha1 = "084e3b2269898e10e82f5b5390730df71e1afc2d"
-repo-rev = "mutable"
+git-tree-sha1 = "2324aa3eceef28c5fe7f5a087ab1a958099d650c"
+repo-rev = "main"
 repo-url = "https://github.com/gafter/AutoHashEqualsCached.jl"
 uuid = "887ad303-ad3a-4bc5-965e-507c643d6945"
 version = "0.1.1"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+
+[[deps.CompilerSupportLibraries_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
+version = "0.5.2+0"
+
+[[deps.Libdl]]
+uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+
+[[deps.LinearAlgebra]]
+deps = ["Libdl", "libblastrampoline_jll"]
+uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]
@@ -24,6 +39,11 @@ version = "0.5.10"
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+
+[[deps.OpenBLAS_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
+uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
+version = "0.3.20+0"
 
 [[deps.OrderedCollections]]
 git-tree-sha1 = "d321bf2de576bf25ec4d3e4360faca399afca282"
@@ -43,7 +63,7 @@ version = "0.3.3"
 [[deps.Rematch2]]
 deps = ["MacroTools", "OrderedCollections"]
 git-tree-sha1 = "5228c5a0432e1b73cbb0117d3c59aa73ff158304"
-repo-rev = "isequal"
+repo-rev = "main"
 repo-url = "https://github.com/gafter/Rematch2.jl"
 uuid = "351a7294-9038-49b6-b9cf-e076b05af63f"
 version = "0.2.6"
@@ -54,3 +74,27 @@ version = "0.7.0"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+
+[[deps.SparseArrays]]
+deps = ["LinearAlgebra", "Random"]
+uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StaticArrays]]
+deps = ["LinearAlgebra", "Random", "StaticArraysCore", "Statistics"]
+git-tree-sha1 = "8982b3607a212b070a5e46eea83eb62b4744ae12"
+uuid = "90137ffa-7385-5640-81b9-e52037218182"
+version = "1.5.25"
+
+[[deps.StaticArraysCore]]
+git-tree-sha1 = "6b7ba252635a5eff6a0b0664a41ee140a1c9e72a"
+uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
+version = "1.4.0"
+
+[[deps.Statistics]]
+deps = ["LinearAlgebra", "SparseArrays"]
+uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[[deps.libblastrampoline_jll]]
+deps = ["Artifacts", "Libdl", "OpenBLAS_jll"]
+uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
+version = "5.1.1+0"

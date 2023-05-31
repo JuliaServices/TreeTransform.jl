@@ -1,6 +1,7 @@
 module TreeTransform
 
-using Rematch2: topological_sort, ImmutableVector
+using StaticArrays
+using Rematch2: topological_sort
 
 export bottom_up_rewrite
 
@@ -47,15 +48,23 @@ mutable struct RewriteContext
     # is a fixed point would also appear in this map, and map to itself.
     @_const fixed_points::IdDict{Any, Any}
 
+    # A helper function for computing fixed points of arrays.
+    fixed_point::Function
+
     function RewriteContext(
         xform::Function,
         detect_cycles::Bool,
         max_transformations_per_node::Int,
         root_node::Any)
         fixed_points = IdDict{Any, Any}()
-        new(xform, detect_cycles, max_transformations_per_node, 0, 0, root_node, fixed_points);
+        let ctx = new(xform, detect_cycles, max_transformations_per_node, 0, 0, root_node, fixed_points);
+            ctx.fixed_point = node -> fixed_point(ctx, node, true)
+            ctx
+        end
     end
 end
+
+function enumerate_children end
 
 """
     bottom_up_rewrite(
@@ -148,8 +157,8 @@ function bottom_up_rewrite(
     ctx = RewriteContext(xform, detect_cycles, max_transformations_per_node, data)
 
     if recursive
-
         _ = fixed_point(ctx, data, true)
+
     else
         # Use an iterative version to avoid stack overflow.  It is slower due to the
         # need to start with a topological sort.
@@ -185,6 +194,14 @@ function bottom_up_rewrite(
     result
 end
 
+#
+# Users may override this to hide fields that should not be considered
+# either for transformation or for passing to the constructor.
+#
+function fieldnames(x::Type{T}) where { T }
+    Base.fieldnames(x)
+end
+
 # Count the number of nodes reachable from the root node.
 function count_reachable_nodes(root::T) where { T }
     counted = Set{Any}()
@@ -203,108 +220,46 @@ function count_reachable_nodes(root::T) where { T }
     length(counted)
 end
 
-# Select a set of field names for a given node type, so that we can fetch the fields
-# and then use a positional constructor to build a new equivalent node.  This is needed
-# in order to revise a node based on the results of revising its children.
-function enumerate_children_names(node_type::Type{T}) where { T }
-    # We only consider constructors that are not vararg, have no keyword arguments,
-    # and whose parameter names all correspond to fields of the node type.
-    # We take the constructor(s) with the longest parameter list with these properties.
-    # We throw an exception if there are more than one and they name different fields
-    # or in different orders.
+# Enumerate the children of the given node.
+function enumerate_children(node::T) where { T }
+    names = fieldnames(T)
+    num_fields = length(names)
+    vs = Vector{Any}(undef, num_fields)
+    for i in 1:num_fields
+        @inbounds v = getfield(node, i)
+        @inbounds vs[i] = v
+    end
 
-    members = fieldnames(node_type)
-    length(members) == 0 && return members
+    vs
+end
 
-    # Search for constructor methods that have no keyword parameters, and are not varargs.
-    meths = Method[methods(node_type)...]
-    meths = filter(m -> !m.isva && length(Base.kwarg_decl(m))==0, meths)
-    # drop the implicit var"#self#" argument
-    argnames_list = map(m -> dropfirst(Base.method_argnames(m)), meths)
-    # narrow to arg lists where all parameter names correspond to members
-    argnames_list = unique(filter(l -> all(n -> n in members, l), argnames_list))
-    # find the longest such arg list
-    isempty(argnames_list) && return Symbol[]
-    len = maximum(map(length, argnames_list))
-    argnames_list = filter(l -> length(l) == len, argnames_list)
+function enumerate_children(node::AbstractVector{T}) where { T }
+    node
+end
 
-    if length(argnames_list) == 1
-        # found a uniquely satisfying order for member names
-        return only(argnames_list)
-    elseif len == length(members)
-        # no unique constructor, but the correct number of fields exist; use them
-        return vcat(members)
+function rebuild_node(ctx::RewriteContext, node::T) where { T }
+    names = fieldnames(T)
+    num_fields = length(names)
+
+    # Use a static vector to avoid allocations. Since this method is specialized on T, this
+    # code compiles into just copying the fields into stack/registers.
+    ws = StaticArrays.SizedVector{num_fields,Any}(nothing for i in 1:num_fields)
+
+    # True if all the fields remain `===`.
+    all_same = true
+
+    for i in 1:num_fields
+        @inbounds v = getfield(node, i)
+        w = fixed_point(ctx, v, true)
+        all_same &= v === w
+        @inbounds ws[i] = w
+    end
+
+    if all_same
+        return node
     else
-        # no unique constructor, and not all fields are used.  Throw an error when
-        # a node is encountered.
-        return :(error("Cannot infer an order in which to construct the children of $(node_type)."))
+        return T(ws...)
     end
-end
-
-function enumerate_children_names(node_type::Type{Expr})
-    return [:head, :args]
-end
-
-@generated function enumerate_children(node::T) where { T }
-    # Since this is a @generated function, node is actually the type of the argument.
-    node_type = node
-    member_names = enumerate_children_names(node_type)
-    length(member_names) == 0 && return ImmutableVector{Any}([])
-    :(Any[$((:(node.$m) for m in member_names)...)])
-end
-
-function enumerate_children(node::AbstractArray{T}) where { T }
-    return vcat(node)
-end
-
-# A non-generated version of enumerate_children for debugging
-# function enumerate_children(node::T) where { T }
-#     node_type = typeof(node)
-#     member_names = enumerate_children_names(node_type)
-#     Any[getfield(node, m) for m in member_names]
-# end
-
-# Rebuild the node with revised children, if any
-# If no children have changed, then return the original node.
-@generated function rebuild_node(ctx::RewriteContext, node::T) where { T }
-    # Generate type-specific code to rebuild the node in case children have changed.
-
-    # Note: since this is a @generated function, node is actually the type of the node.
-    node_type = node
-    member_names = enumerate_children_names(node)
-    length(member_names) == 0 && return :node
-
-    result_expression = Expr(:block)
-    code = result_expression.args
-
-    # Cache the fields and their translations in local variables.
-    cached_translations = map(m -> Symbol(m, "'"), member_names)
-    for (m, t) in zip(member_names, cached_translations)
-        push!(code, quote
-            local $m = node.$m
-            local $t = $fixed_point(ctx, $m, $(true))
-        end)
-    end
-
-    # Determine if any have changed and, if so, reconstruct.
-    any_changed = mapreduce(
-        ((m, t),) -> :($m !== $t), (a,b) -> :($a || $b), zip(member_names, cached_translations))
-
-    # The following may not work in Julia 1.10 and later.  The constructor method of
-    # of the node's type may not be defined in the world age at which this function
-    # was defined.
-    rebuild = :($node_type($(cached_translations...)))
-    push!(code, quote
-        if $any_changed
-            result = $rebuild
-            # println("  rebuilt $node ===> $result")
-            result
-        else
-            node
-        end
-    end)
-
-    result_expression
 end
 
 function rebuild_node(ctx::RewriteContext, node::Expr)
@@ -319,22 +274,12 @@ end
 
 function rebuild_node(ctx::RewriteContext, node::AbstractArray{T}) where { T }
     length(node) == 0 && return node
-    x = f -> fixed_point(ctx, f, true)
-    rewritten = Base.Broadcast.broadcast(x, node)
-    all(((a, b),) -> a == b, zip(node, rewritten)) && return node
-    # println("  rebuilt $node ===> $rewritten")
-    return rewritten
+    rewritten = Base.Broadcast.broadcast(ctx.fixed_point, node)
+    for i in eachindex(node)
+        @inbounds node[i] !== rewritten[i] && return rewritten
+    end
+    return node
 end
-
-# A non-generated version of rebuild_node for debugging
-# function rebuild_node(ctx::RewriteContext, node::T) where { T }
-#     node_type = typeof(node)
-#     fields = enumerate_children(node)
-#     length(fields) == 0 && return node
-#     cached_translations = Any[ctx.fixed_points[m] for m in fields]
-#     any_changed = any(map((m,t) -> m !== t, fields, cached_translations))
-#     return any_changed ? node_type(cached_translations...) : node
-# end
 
 #
 # Transform a node by applying a single iteration of the transformation function
@@ -346,9 +291,7 @@ function xform(ctx::RewriteContext, @nospecialize(data))
             # compute the maximum number of transformations
             ctx.max_transformations =
                 ctx.max_transformations_per_node * count_reachable_nodes(ctx.root_node)
-                # println("  Reachable Nodes: $(count_reachable_nodes(ctx.root_node))")
-                # println("  Maximum number of transformations: $(ctx.max_transformations)")
-            end
+        end
         if ctx.transformation_count > ctx.max_transformations
             error("Too many ($(ctx.transformation_count)) transformations.  Perhaps there is a cycle in the rewrite rules.")
         end
@@ -367,12 +310,8 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
         return ctx.fixed_points[node]
     end
 
-    rewritten = node
-    if rebuild
-        # In case children may have been revised, rebuild the node.
-        rewritten = rebuild_node(ctx, node)
-        @devassert all(child in keys(ctx.fixed_points) for child in enumerate_children(rewritten))
-    end
+    # In case children may have been revised, rebuild the node.
+    rewritten = rebuild ? rebuild_node(ctx, node) : node
 
     if ctx.detect_cycles
         # Prepare a dupicate-detection set, if needed to detect non-expansionary
