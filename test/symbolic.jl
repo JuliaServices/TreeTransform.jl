@@ -4,11 +4,17 @@ using Rematch2: @match2
 using TreeTransform: bottom_up_rewrite, TreeTransform
 using Test
 
-Deriv(x, e) = Expr(:deriv, [x, e])
+# Deriv(x, e) = Expr(:deriv, [x, e])
+
+struct Deriv
+    name::Symbol
+    expr::Any
+end
 
 function xform(node)
+    println("--------------------")
+    dump(node)
     @match2 node begin
-
         Expr(:call, [:+, a::Number, b::Number]) => a + b
 
         Expr(:call, [:*, a::Number, b::Number]) => a * b
@@ -38,19 +44,18 @@ function xform(node)
         Expr(:call, [:*, a, Expr(:call, [:+, b, c])]) => :($a * $b + $a * $c)
 
         # deriv x (a + b) => deriv x a + deriv x b
+        Deriv(x, Expr(:call, [:+, a, b])) => :($(Deriv(x, a)) + $(Deriv(x, b)))
+
         # deriv x (a * b) => a * deriv x b + b * diff x a
         # deriv x x => 1
-        Expr(:deriv, [a, a]) => 1
+        Deriv(x, x::Symbol) => 1
 
         # deriv x y => 0
-
+        Deriv(x, y::Symbol) where x != y => 0
 
         x => x
     end
 end
-
-#	x*(y+z)	= x*y+x*z;
-# x+(y+z)	= (x+y)+z;	x*(y*z)	= (x*y)*z;
 
 function simplify(node)
     bottom_up_rewrite(xform, node)
@@ -67,7 +72,8 @@ end
     @test simplify(:(x * (0 + y))) == :(x * y)
     @test simplify(:(a + b + c + d)) == :(((a + b) + c) + d)
 
-    @test simplify(Expr(:deriv, [:a, :a])) == 1
+    @test simplify(Deriv(:a, :a)) == 1
+    @test simplify(Deriv(:a, :(a + b))) == 1
 end
 
 end
