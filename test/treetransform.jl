@@ -1,5 +1,5 @@
-using Rematch2: @match2
-using TreeTransform: bottom_up_rewrite, TreeTransform, fieldnames
+using Rematch2: Rematch2, @match2
+using TreeTransform: bottom_up_rewrite, TreeTransform
 using AutoHashEqualsCached
 
 abstract type Expression end
@@ -196,4 +196,32 @@ end
 
     @test simplify(:(5 + 3)) == :(8)
     @test simplify(:(5 + 3 + 100)) == :(108)
+end
+
+@auto_hash_equals_cached struct B7; x; y; end
+B7(x) = B7(x, x + 10)
+function Rematch2.fieldnames(::Type{B7})
+    return (:x,)
+end
+
+@testset "Check that Rematch2.fieldnames is obeyed" begin
+    function xform5(node)
+        @match2 node begin
+            2 => 3
+            5 => 6
+            B7(x) where x < 4 => B7(x + 20)
+            x => x
+        end
+    end
+
+    function simplify(node)
+        bottom_up_rewrite(xform5, node)
+    end
+
+    @test simplify(B7(1, 2)) == B7(21, 31)
+    @test simplify(B7(2, 2)) == B7(23, 33)
+    @test simplify(B7(3, 2)) == B7(23, 33)
+    @test simplify(B7(4, 2)) == B7(4, 2)
+    @test simplify(B7(5, 2)) == B7(6, 16)
+    @test simplify(B7(6, 2)) == B7(6, 2)
 end
