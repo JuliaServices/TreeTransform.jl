@@ -4,3 +4,5 @@ using Random
 using Rematch2: @match2
 
 include("treetransform.jl")
+include("symbolic.jl")
+include("proplogic.jl")
