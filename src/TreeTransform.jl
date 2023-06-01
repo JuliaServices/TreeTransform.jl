@@ -1,8 +1,10 @@
 module TreeTransform
 
+using StaticArrays
 using Rematch2: topological_sort
+import Rematch2: fieldnames
 
-export bottom_up_rewrite, no_transform
+export bottom_up_rewrite
 
 # const fields only suppored >= Julia 1.8
 macro _const(x)
@@ -15,15 +17,11 @@ end
 
 dropfirst(a) = a[2:length(a)]
 
-"""
-    no_transform(node::Type) = true
-
-Override this function to return true for any types that should not be transformed.
-"""
-no_transform(node) = false
-
-function enumerate_children end
-function enumerate_unprocessed_children end
+# temporarily disable assertions in the implementation.
+macro devassert(x...)
+    # esc(:(@assert($(x...))))
+    nothing
+end
 
 # The state of the transformation is maintained in an instance of this struct.
 mutable struct RewriteContext
@@ -33,39 +31,67 @@ mutable struct RewriteContext
     # If true, we are detecting cycles of the first kind.
     @_const detect_cycles::Bool
 
-    # If positive, the number of individual node transformations before we
+    # If positive, the number of transformations per node after which we
     # throw an exception indicating a likely cycle.
-    remaining_transformations::Int
+    @_const max_transformations_per_node::Int
 
-    # A function to enumerate all children of a node.
-    @_const enumerate_children_fcn::Function
+    # If positive, the number of transformations (total) after which we
+    # throw an exception indicating a likely cycle.  To avoid counting the
+    # nodes, this is computed only after we have performed 100 transformations.
+    max_transformations::Int
+
+    # Number of transformations performed so far.
+    transformation_count::Int
+
+    @_const root_node::Any
 
     # A map from each node to a fixed point for that node.  A node that
     # is a fixed point would also appear in this map, and map to itself.
     @_const fixed_points::IdDict{Any, Any}
 
+    # A helper function for computing fixed points of arrays.
+    fixed_point::Function
+
     function RewriteContext(
         xform::Function,
         detect_cycles::Bool,
-        max_transformations::Int,
-        enumerate_children_fcn = enumerate_children)
+        max_transformations_per_node::Int,
+        root_node::Any)
         fixed_points = IdDict{Any, Any}()
-        new(xform, detect_cycles, max_transformations, enumerate_children_fcn, fixed_points);
+        let ctx = new(xform, detect_cycles, max_transformations_per_node, 0, 0, root_node, fixed_points);
+            ctx.fixed_point = node -> fixed_point(ctx, node, true)
+            ctx
+        end
     end
 end
+
+function enumerate_children end
 
 """
     bottom_up_rewrite(
         xform::Function,
         data;
         detect_cycles::Bool = false,
-        max_transformations::Int = 0)
+        max_transformations::Int = 5,
+        recursive::Bool = true)
 
 Given a data structure (`data`) that does not contain cycles, we
 apply a given transformation function (`xform`) at every node, and
 return a new data structure with all possible transformations
 applied.  Note that the result is a data structure in which every
 node is a fixed-point of the transformation function provided.
+
+There are two strategies for reaching the fixed-point.  One strategy
+is recursive, by postorder traversal; we first find the fixed point
+of each child (recursively), and then repeatedly apply transformations
+to the parent node until it is a fixed point.  The other strategy is
+iterative, by topological sort; we process nodes one by one from
+the leaves to the root, and repeatedly apply transformations to each
+node until it is a fixed point.  In either case, when the transformation
+function produces a new node, we apply the transformation function to
+the new node as well using the recursive strategy.  We use a cache so
+that once we have computed the fixed point of a node, we do not need
+to recompute it.
 
 By default, we do not detect cycles in the applied transformations.
 There are two kinds of cycles that can occur: first, if some sequence
@@ -78,12 +104,11 @@ We offer two mechanisms to detect cycles.  First, we can detect the
 simple cycles of the first kind automatically, but at additional
 cost.  You can enable this by setting `detect_cycles` to `true`.
 Second, you can give a limit on the number of transformations to
-apply per node in the original data structure.  You can enable this
-by setting `max_transformations` to a positive integer.  For example,
-you set `max_transformations` to 3 and the original data structure
-contained 100 nodes, then we will only apply 300 distinct non-identity
-node transformations anywhere in the graph before throwing an
-exception.
+apply, per node, in the original data structure.  You can enable this
+by setting `max_transformations_per_node` to a positive integer.  If you set
+`max_transformations_per_node` to 3 and the original data structure contained
+100 nodes, then we will throw an exception after performing a total
+of 300 calls to the transformation function.
 
 The `transform` function should take a single argument, the node
 to transform, and return a transformed version of that node.  The
@@ -118,166 +143,168 @@ E-graph approach can handle cycles, but it is more expensive and
 requires more work to set up. See also "Metatheory.jl: Fast and
 Elegant Algebraic Computation in Julia with Extensible Equality
 Saturation" by Alessandro Cheli, 2021, <https://arxiv.org/abs/2102.07888>
-
-You can specialize the behavior for some nodes, e.g. to force child
-nodes to be visited in a particular order.  For example, if you
-have a node that represents the conjunction of two boolean expressions,
-you might want to force the left child to be visited before the
-right child, and then if the left child is `false`, you can skip
-the right child.  You can also use this to skip rewriting of certain
-child nodes.  **The way to do this is not yet defined.**
 """
 function bottom_up_rewrite(
     xform::Function,
     data;
-    enumerate_children_fcn = enumerate_children,
     detect_cycles::Bool = false,
-    max_transformations::Int = 0
-)
-
-    # Build a work queue as a list of nodes to be transformed.  Since we are
-    # doing a bottom-up transformation, we start with the leaves of the graph
-    # as determined by a topological_sort of the nodes reachable from the root.
-    # That way, when we get to higher levels in the dag, we will have already
-    # transformed the children.  However, when new child nodes are built, they
-    # will have to be visited again.
-    nodes = topological_sort(enumerate_children_fcn, Any[data])
+    max_transformations_per_node::Int = 5,
+    recursive::Bool = true)
 
     # We use a mutable struct to hold the state of the transformation.
     # This is a bit of a hack (says CoPilot), but it is the easiest way to pass
     # around the state of the transformation without having to pass
     # around a lot of arguments.
-    ctx = RewriteContext(xform, detect_cycles, max_transformations * length(nodes))
+    ctx = RewriteContext(xform, detect_cycles, max_transformations_per_node, data)
 
-    # Transform each node until it reaches a fixed-point.
-    any_changes = false
-    for node in reverse(nodes)
-        # println("processing node ($(objectid(node))) $node")
-        newnode = fixed_point(ctx, node, any_changes)
-        if newnode !== node
-            any_changes = true
+    if recursive
+        _ = fixed_point(ctx, data, true)
+
+    else
+        # Use an iterative version to avoid stack overflow.  It is slower due to the
+        # need to start with a topological sort.
+        # TODO: we should use this as a strategy automatically when we detect deep graphs.
+        # TODO: incorporate the topological sort into the code, below, so that we do not
+        # have to actually build the resulting topologically sorted list of nodes.
+
+        # Build a work queue as a list of nodes to be transformed.  Since we are
+        # doing a bottom-up transformation, we start with the leaves of the graph
+        # as determined by a topological_sort of the nodes reachable from the root.
+        # That way, when we get to higher levels in the dag, we will have already
+        # transformed the children.  However, when new child nodes are built, they
+        # will have to be visited again, recursively.  This avoids the most likely
+        # source of stack overflow.
+        nodes = topological_sort(enumerate_children, Any[data])
+        ctx.max_transformations = max_transformations_per_node * length(nodes)
+        @assert nodes[1] === data
+
+        # Transform each node until it reaches a fixed-point.
+        any_changes = false
+        for node in reverse(nodes)
+            # println("processing node ($(objectid(node))) $node")
+            newnode = fixed_point(ctx, node, any_changes)
+            if newnode !== node
+                any_changes = true
+            end
+            @devassert node in keys(ctx.fixed_points)
+            @devassert newnode in keys(ctx.fixed_points)
         end
-        @assert no_transform(node) || node in keys(ctx.fixed_points)
-        @assert no_transform(newnode) || newnode in keys(ctx.fixed_points)
     end
 
     result = ctx.fixed_points[data]
     result
 end
 
-function enumerate_children_names(type::Type{T}) where { T }
-    # We only consider constructors that are not vararg, have no keyword arguments,
-    # and whose parameter names all correspond to fields of the node type.
-    # We take the constructor(s) with the longest parameter list with these properties.
-    # We throw an exception if there are more than one and they name different fields
-    # or in different orders.
+# Count the number of nodes reachable from the root node.
+function count_reachable_nodes(root::T) where { T }
+    counted = Set{Any}()
 
-    members = fieldnames(type)
-
-    # Search for constructor methods that have no keyword parameters, and are not varargs.
-    meths = Method[methods(type)...]
-    meths = filter(m -> !m.isva && length(Base.kwarg_decl(m))==0, meths)
-    # drop the implicit var"#self#" argument
-    argnames_list = map(m -> dropfirst(Base.method_argnames(m)), meths)
-    # narrow to arg lists where all parameter names correspond to members
-    argnames_list = unique(filter(l -> all(n -> n in members, l), argnames_list))
-    # find the longest such arg list
-    isempty(argnames_list) && return Symbol[]
-    len = maximum(map(length, argnames_list))
-    argnames_list = filter(l -> length(l) == len, argnames_list)
-
-    if length(argnames_list) == 1
-        # found a uniquely satisfying order for member names
-        return only(argnames_list)
-    elseif len == length(members)
-        # no unique constructor, but the correct number of fields exist; use them
-        return vcat(members)
-    else
-        # no unique constructor, and not all fields are used.  Throw an error when
-        # a node is encountered.
-        return :(error("Cannot infer an order in which to construct the children of $(type)."))
+    # Note that this is recursive.  If that becomes a problem, we can
+    # rewrite it iteratively.
+    function count(node::T) where { T }
+        node in counted && return
+        push!(counted, node)
+        for child in enumerate_children(node)
+            count(child)
+        end
     end
+
+    count(root)
+    length(counted)
 end
 
-# TODO: make this @generated
+# Enumerate the children of the given node.
 function enumerate_children(node::T) where { T }
-    node_type = typeof(node)
-    member_names = enumerate_children_names(node_type)
-    Any[getfield(node, m) for m in member_names]
-end
-
-# Rebuild the node with revised children, if any
-# If no children have changed, then return the original node.
-# A prerequisite to calling this function is that all children must
-# have had their fixed-point value recorded in ctx.fixed_points.
-# @generated function rebuild_node(ctx::RewriteContext, node::T) where { T }
-#     # Generate type-specific code to rebuild the node in case children have changed.
-
-#     # Note: since this is a @generated function, node is actually the type of the arg.
-#     node_type = node
-#     member_names = enumerate_children_names(node)
-#     length(member_names) == 0 && return :(node)
-
-#     result_expression = Expr(:block)
-#     code = result_expression.args
-
-#     # Cache the fields and their translations in local variables.
-#     cached_translations = map(m -> Symbol(m, "'"), member_names)
-#     for (m, t) in zip(member_names, cached_translations)
-#         push!(code, :(local $m = getfield(node, $m)))
-#         push!(code, :(local $t = ctx.fixed_points[$m]))
-#     end
-#     # Determine if any have changed and, if so, reconstruct.
-#     any_changed = mapreduce(
-#         ((m, t),) -> :($m !== $t), (a,b) -> :($a || $b), zip(member_names, cached_translations))
-#     rebuild = :($node_type($(cached_translations)...))
-#     result = :($any_changed ? $rebuild : $node)
-#     push!(code, result)
-#     result_expression
-# end
-
-# TODO: make this @generated
-function rebuild_node(ctx::RewriteContext, node::T) where { T }
-    no_transform(node) && return node
-    node_type = typeof(node)
-    member_names = enumerate_children_names(node_type)
-    length(member_names) == 0 && return node
-    fields = map(m -> getfield(node, m), member_names)
-    cached_translations = map(m -> no_transform(m) ? m : ctx.fixed_points[m], fields)
-    any_changed = any(map((m,t) -> m !== t, fields, cached_translations))
-    return any_changed ? node_type(cached_translations...) : node
-end
-
-# Transform a node by applying a single iteration of the transformation function
-function xform(ctx::RewriteContext, data)
-    # @assert !no_transform(data)
-
-    if ctx.remaining_transformations > 0 && (ctx.remaining_transformations -= 1) == 0
-        error("Too many transformations.  Perhaps there is an expansionary cycle in the rewrite rules.")
+    names = fieldnames(T)
+    num_fields = length(names)
+    vs = Vector{Any}(undef, num_fields)
+    for i in 1:num_fields
+        @inbounds v = getfield(node, i)
+        @inbounds vs[i] = v
     end
-    ctx.xform_fcn(data)
+
+    vs
+end
+
+function enumerate_children(node::AbstractVector{T}) where { T }
+    node
+end
+
+function rebuild_node(ctx::RewriteContext, node::T) where { T }
+    names = fieldnames(T)
+    num_fields = length(names)
+
+    # Use a static vector to avoid allocations. Since this method is specialized on T, this
+    # code compiles into just copying the fields into stack/registers.
+    ws = StaticArrays.SizedVector{num_fields,Any}(nothing for i in 1:num_fields)
+
+    # True if all the fields remain `===`.
+    all_same = true
+
+    for i in 1:num_fields
+        @inbounds v = getfield(node, i)
+        w = fixed_point(ctx, v, true)
+        all_same &= v === w
+        @inbounds ws[i] = w
+    end
+
+    if all_same
+        return node
+    else
+        return T(ws...)
+    end
+end
+
+function rebuild_node(ctx::RewriteContext, node::Expr)
+    head = fixed_point(ctx, node.head, true)
+    args = fixed_point(ctx, node.args, true)
+    if (head === node.head) && (args === node.args)
+        return node
+    else
+        return Expr(node.head, args...)
+    end
+end
+
+function rebuild_node(ctx::RewriteContext, node::AbstractArray{T}) where { T }
+    length(node) == 0 && return node
+    rewritten = Base.Broadcast.broadcast(ctx.fixed_point, node)
+    for i in eachindex(node)
+        @inbounds node[i] !== rewritten[i] && return rewritten
+    end
+    return node
+end
+
+#
+# Transform a node by applying a single iteration of the transformation function
+#
+function xform(ctx::RewriteContext, @nospecialize(data))
+    ctx.transformation_count += 1
+    if ctx.max_transformations_per_node > 0 && ctx.transformation_count > 100
+        if ctx.max_transformations == 0
+            # compute the maximum number of transformations
+            ctx.max_transformations =
+                ctx.max_transformations_per_node * count_reachable_nodes(ctx.root_node)
+        end
+        if ctx.transformation_count > ctx.max_transformations
+            error("Too many ($(ctx.transformation_count)) transformations.  Perhaps there is a cycle in the rewrite rules.")
+        end
+    end
+    result = ctx.xform_fcn(data)
+    # println("  [$(ctx.transformation_count)] xform($data) ===> $result")
+    result
 end
 
 #
 # Transform the given node until it and each of its descendants reach a fixed-point.
 #
 function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
-    no_transform(node) && return node
-
     # if we already know the fixed-point for this node, return it
     if node in keys(ctx.fixed_points)
         return ctx.fixed_points[node]
     end
 
-    rewritten = node
-    if rebuild
-        # In case children may have been revised, rebuild the node.
-        rewritten = rebuild_node(ctx, node)
-        # println("  rebuilt to ($(objectid(rewritten))) $rewritten")
-        for child in ctx.enumerate_children_fcn(rewritten)
-            @assert no_transform(child) || child in keys(ctx.fixed_points)
-        end
-    end
+    # In case children may have been revised, rebuild the node.
+    rewritten = rebuild ? rebuild_node(ctx, node) : node
 
     if ctx.detect_cycles
         # Prepare a dupicate-detection set, if needed to detect non-expansionary
@@ -287,13 +314,6 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
 
     # Continue transforming until we reach a fixed-point for this node
     while true
-        if no_transform(rewritten)
-            ctx.fixed_points[node] = rewritten
-            ctx.fixed_points[rewritten] = rewritten
-            # println("  rewritten to ($(objectid(rewritten))) $rewritten")
-            return rewritten
-        end
-
         # Apply a single transformation to the node, and then recursively transform
         # any new children to a fixed-point.  We don't apply further transformations
         # to the top-level node recursively because we want to avoid unnecessarily
@@ -305,11 +325,12 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
             # println("  rewritten to ($(objectid(rewritten))) $rewritten")
             return rewritten
         end
+        rewritten2 = rebuild_node(ctx, rewritten2)
         if ctx.detect_cycles
             if rewritten2 in duplicate_set
                 error("Cycle detected in bottom_up_rewrite")
             end
-            duplicate_set.add(rewritten2)
+            push!(duplicate_set, rewritten2)
         end
         rewritten = rewritten2
     end

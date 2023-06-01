@@ -36,7 +36,7 @@ struct Variable <: Expression
 end
 
 # Our transformation function
-function xform(node)
+function xform(@nospecialize(node))
     @match2 node begin
         # identity elements
         Const(-0.0)        => Const(0.0)
@@ -76,10 +76,6 @@ function xform(node)
     end
 end
 
-# Short-circuit some nodes during transformation.
-TreeTransform.no_transform(node::Float64) = true
-TreeTransform.no_transform(node::Variable) = true
-
 x = Variable(:x)
 y = Variable(:y)
 z = Variable(:z)
@@ -113,26 +109,52 @@ expr = e22
 # The expected results of simplification
 expected = Sub(Const(-63.0), Mul(Const(3.0), x))
 
-function simplify(node)
-    bottom_up_rewrite(xform, node)
+function simplify(node;
+    detect_cycles::Bool = false,
+    max_transformations_per_node::Int = 5,
+    recursive::Bool = true)
+    bottom_up_rewrite(xform, node; detect_cycles, max_transformations_per_node, recursive)
 end
 
 @assert simplify(expr) == expected
 
-function f(expr::Expression, n::Int)
+function f(expr::Expression, n::Int;
+    detect_cycles::Bool = false,
+    max_transformations_per_node::Int = 5,
+    recursive::Bool = true)
     for i in 1:n
-        simplify(expr)
+        simplify(expr; detect_cycles, max_transformations_per_node, recursive)
     end
 end
 
-function performance_test(expr::Expression)
-    f(expr, 5)
+function performance_test(expr::Expression;
+    detect_cycles::Bool = false,
+    max_transformations_per_node::Int = 5,
+    recursive::Bool = true)
+    f(expr, 2; detect_cycles, max_transformations_per_node, recursive) # warm-up
     GC.gc()
-    @time f(expr, 2000)
+    n = 200000
+    println("testing $(commas(n)) iterations with detect_cycles = $detect_cycles, max_transformations_per_node = $max_transformations_per_node, recursive = $recursive")
+    @time f(expr, n; detect_cycles, max_transformations_per_node, recursive)
     GC.gc()
 end
 
-performance_test(expr)
+# Insert commas in an integer display every three positions.
+# See "Regular Expressions Cookbook," by Goyvaerts and Levithan, O'Reilly, 2nd Ed, p. 402
+function commas(num::Integer)
+    str = string(num)
+    return replace(str, r"(?<=[0-9])(?=(?:[0-9]{3})+(?![0-9]))" => ",")
+end
+
+# for detect_cycles in [false, true]
+#     for max_transformations_per_node in [0, 5]
+#         for recursive in [false, true]
+#             performance_test(expr; detect_cycles, max_transformations_per_node, recursive)
+#         end
+#     end
+# end
+
+performance_test(expr; detect_cycles=false, max_transformations_per_node=5, recursive=true)
 
 end
 nothing
