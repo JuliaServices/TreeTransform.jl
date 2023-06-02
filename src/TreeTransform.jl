@@ -156,7 +156,6 @@ function bottom_up_rewrite(
 
     if recursive
         _ = fixed_point(ctx, data, true)
-
     else
         # Use an iterative version to avoid stack overflow.  It is slower due to the
         # need to start with a topological sort.
@@ -258,7 +257,7 @@ function rebuild_node(ctx::RewriteContext, node::Expr)
     if (head === node.head) && (args === node.args)
         return node
     else
-        return Expr(node.head, args...)
+        return Expr(head, args...)
     end
 end
 
