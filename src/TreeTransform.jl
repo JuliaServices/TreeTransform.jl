@@ -1,8 +1,7 @@
 module TreeTransform
 
 using StaticArrays
-using Rematch2: topological_sort
-import Rematch2: fieldnames
+using Rematch2: topological_sort, fieldnames
 
 export bottom_up_rewrite
 
@@ -14,8 +13,6 @@ macro _const(x)
         esc(x)
     end
 end
-
-dropfirst(a) = a[2:length(a)]
 
 # temporarily disable assertions in the implementation.
 macro devassert(x...)
@@ -45,8 +42,8 @@ mutable struct RewriteContext
 
     @_const root_node::Any
 
-    # A map from each node to a fixed point for that node.  A node that
-    # is a fixed point would also appear in this map, and map to itself.
+    # A map from each node to a fixed-point for that node.  A node that
+    # is a fixed-point would also appear in this map, and map to itself.
     @_const fixed_points::IdDict{Any, Any}
 
     # A helper function for computing fixed points of arrays.
@@ -82,15 +79,15 @@ applied.  Note that the result is a data structure in which every
 node is a fixed-point of the transformation function provided.
 
 There are two strategies for reaching the fixed-point.  One strategy
-is recursive, by postorder traversal; we first find the fixed point
+is recursive, by postorder traversal; we first find the fixed-point
 of each child (recursively), and then repeatedly apply transformations
-to the parent node until it is a fixed point.  The other strategy is
+to the parent node until it is a fixed-point.  The other strategy is
 iterative, by topological sort; we process nodes one by one from
 the leaves to the root, and repeatedly apply transformations to each
-node until it is a fixed point.  In either case, when the transformation
+node until it is a fixed-point.  In either case, when the transformation
 function produces a new node, we apply the transformation function to
 the new node as well using the recursive strategy.  We use a cache so
-that once we have computed the fixed point of a node, we do not need
+that once we have computed the fixed-point of a node, we do not need
 to recompute it.
 
 By default, we do not detect cycles in the applied transformations.
@@ -266,7 +263,7 @@ function rebuild_node(ctx::RewriteContext, node::Expr)
 end
 
 function rebuild_node(ctx::RewriteContext, node::AbstractArray{T}) where { T }
-    length(node) == 0 && return node
+    isempty(node) && return node
     rewritten = Base.Broadcast.broadcast(ctx.fixed_point, node)
     for i in eachindex(node)
         @inbounds node[i] !== rewritten[i] && return rewritten
@@ -294,13 +291,15 @@ function xform(ctx::RewriteContext, @nospecialize(data))
     result
 end
 
+const some_unlikely_value = :var"##  My hovercraft is full of eels.  ##"
 #
 # Transform the given node until it and each of its descendants reach a fixed-point.
 #
 function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
     # if we already know the fixed-point for this node, return it
-    if node in keys(ctx.fixed_points)
-        return ctx.fixed_points[node]
+    fromcache = get(ctx.fixed_points, node, some_unlikely_value)
+    if fromcache !== some_unlikely_value
+        return fromcache
     end
 
     # In case children may have been revised, rebuild the node.
