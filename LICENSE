@@ -1,3 +1,5 @@
+TreeTransform.jl - A library to transform a tree to a fixed-point.
+
 MIT License
 
 Copyright (c) 2023 Neal Gafter <neal@gafter.com> and contributors

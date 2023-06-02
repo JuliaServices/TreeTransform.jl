@@ -1,4 +1,4 @@
-# TreeTransform.jl - A Julia package to transform a tree to a fixed point.
+# TreeTransform.jl - A Julia package to transform a tree to a fixed-point.
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://?.github.io/TreeTransform.jl/stable/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://?.github.io/TreeTransform.jl/dev/)

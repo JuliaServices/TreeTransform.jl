@@ -1,8 +1,6 @@
-using TreeTransform
+using TreeTransform: bottom_up_rewrite
 using Test
 using Random
 using Rematch2: @match2
 
-@testset "TreeTransform.jl" begin
-    # Write your tests here.
-end
+include("treetransform.jl")
