@@ -1,34 +1,3 @@
-using Rematch2: Rematch2, @match2
-using TreeTransform: bottom_up_rewrite, TreeTransform
-using AutoHashEqualsCached
-
-abstract type Expression end
-struct Add <: Expression
-    s::Vector{Expression}
-end
-Base.:(==)(x::Add, y::Add) = x.s == y.s
-Add(e::Expression...) = Add(Expression[e...])
-struct Sub <: Expression
-    x::Expression
-    y::Expression
-end
-struct Neg <: Expression
-    x::Expression
-end
-struct Mul <: Expression
-    x::Expression
-    y::Expression
-end
-struct Div <: Expression
-    x::Expression
-    y::Expression
-end
-struct Const <: Expression
-    value::Float64
-end
-struct Variable <: Expression
-    name::Symbol
-end
 
 function xform(node)
     @match2 node begin
@@ -119,15 +88,6 @@ end
     @test simplify(expr) == expected
 end
 
-# We make a couple of these mutable so that equality can have a fast path
-# using ===, making the expansionary test below run in a reasonable time.
-@auto_hash_equals mutable struct B1; x; y; end
-@auto_hash_equals_cached struct B2; x; y; end
-@auto_hash_equals mutable struct B3; x; y; end
-@auto_hash_equals mutable struct B4; x; y; end
-@auto_hash_equals_cached struct B5; x; y; end
-@auto_hash_equals_cached struct B6; x; y; end
-
 @testset "Check that recursive rewrites occur for new children" begin
     function xform2(node)
         @match2 node begin
@@ -181,7 +141,7 @@ end
         :max_transformations_per_node => 5, :detect_cycles => false)
 end
 
-@testset "Check some Expr simplification" begin
+@testset "Check some Expr simplification 1" begin
     function xform4(node)
         @match2 node begin
             Expr(:call, [:+, a::Number, b::Number]) => a + b
@@ -199,7 +159,9 @@ end
 end
 
 @auto_hash_equals_cached struct B7; x; y; end
-B7(x) = B7(x, x + 10)
+function B7(x)
+    B7(x, x + 10)
+end
 function Rematch2.fieldnames(::Type{B7})
     return (:x,)
 end
@@ -224,4 +186,58 @@ end
     @test simplify(B7(4, 2)) == B7(4, 2)
     @test simplify(B7(5, 2)) == B7(6, 16)
     @test simplify(B7(6, 2)) == B7(6, 2)
+end
+
+@testset "Check some Expr simplification 2" begin
+    # Example from https://github.com/RelationalAI/TreeTransform.jl/issues/6
+    function xform(node)
+        @match2 node begin
+            Expr(:call, [a, a]) => 1
+            x => x
+        end
+    end
+
+    function simplify(node)
+        bottom_up_rewrite(xform, node)
+    end
+
+    @test simplify(:(a(a))) == 1
+    @test simplify(Expr(:call, :a, :a)) == 1
+end
+
+@testset "Check some Expr simplification 3" begin
+    # Example from https://github.com/RelationalAI/TreeTransform.jl/issues/5
+    function xform(node)
+        @match2 node begin
+            Expr(:call, [:+, a::Number, b::Number]) => a + b
+            Expr(:call, [:+, a, b, c]) => Expr(:call, :+, :($a + $b), c)
+            x => x
+        end
+    end
+
+    function simplify(node)
+        bottom_up_rewrite(xform, node)
+    end
+
+    @test simplify(:(5 + 3)) == :(8)
+    @test simplify(:(5 + 3 + 100)) == :(108)
+end
+
+@testset "Check some Expr simplification 4" begin
+    # Example from https://github.com/RelationalAI/TreeTransform.jl/issues/5
+    function xform(node)
+        @match2 node begin
+            Expr(:call, [:+, a::Number, b::Number]) => a + b
+            Expr(:call, [:+, a, b, c, d...]) => Expr(:call, :+, :($a + $b), c, d...)
+            x => x
+        end
+    end
+
+    function simplify(node)
+        bottom_up_rewrite(xform, node)
+    end
+
+    @test simplify(:(5 + 3)) == 8
+    @test simplify(:(5 + 3 + 100)) == 108
+    @test simplify(:(1 + 2 + 3 + 4 + 5 + 6)) == 21
 end
