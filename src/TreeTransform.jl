@@ -246,6 +246,10 @@ function rebuild_node(ctx::RewriteContext, node::T) where { T }
 
     if all_same
         return node
+    elseif node isa NamedTuple
+        return NamedTuple{keys(node)}((ws...,))
+    elseif node isa Tuple
+        return (ws...,)
     else
         return T(ws...)
     end

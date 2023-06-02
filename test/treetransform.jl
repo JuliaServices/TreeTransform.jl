@@ -241,3 +241,34 @@ end
     @test simplify(:(5 + 3 + 100)) == 108
     @test simplify(:(1 + 2 + 3 + 4 + 5 + 6)) == 21
 end
+
+@testset "Test support for tuples" begin
+    function xform(node)
+        @match2 node begin
+            (x::Int) where x % 2 == 1 => x + 1
+            x => x
+        end
+    end
+
+    function simplify(node)
+        bottom_up_rewrite(xform, node)
+    end
+
+    @test simplify((1, 2, 3)) == (2, 2, 4)
+    @test simplify((a = 1, b = 2, c = 3)) == (a = 2, b = 2, c = 4)
+end
+
+@testset "Test support for multidimensional arrays" begin
+    function xform(node)
+        @match2 node begin
+            (x::Int) where x % 2 == 1 => x + 1
+            x => x
+        end
+    end
+
+    function simplify(node)
+        bottom_up_rewrite(xform, node)
+    end
+
+    @test simplify([1 2 3; 4 5 6; 7 8 9]) == [2 2 4; 4 6 6; 8 8 10]
+end
