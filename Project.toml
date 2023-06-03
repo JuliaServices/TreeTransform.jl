@@ -9,6 +9,7 @@ Rematch2 = "351a7294-9038-49b6-b9cf-e076b05af63f"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
+StaticArrays = "1"
 julia = "1.7.0"
 
 [extras]
