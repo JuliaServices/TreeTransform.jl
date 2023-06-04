@@ -244,8 +244,21 @@ end
 
 @testset "Test support for tuples" begin
     function xform(node)
-        @match2 node begin
+         @match2 node begin
+            # Rewrite all uneven integer `x` to `x + 1`
             (x::Int) where x % 2 == 1 => x + 1
+
+            # Rewrite that changes the type of the value
+            (x::Float64) => string(x)
+
+            # Rewrite at the tuple level, keeps the tuple
+            ("a", "b") => ("a", "b", "c")
+            ("a",) => ("a", "b",)
+
+            # Rewrite tuple into non-tuple
+            ("d", "e", 8) => 42
+
+            # Otherwise, identity
             x => x
         end
     end
@@ -255,7 +268,11 @@ end
     end
 
     @test simplify((1, 2, 3)) == (2, 2, 4)
+    @test simplify((1, 2, 3.14)) == (2, 2, "3.14")
     @test simplify((a = 1, b = 2, c = 3)) == (a = 2, b = 2, c = 4)
+    @test simplify(("a",)) == ("a", "b", "c")
+    @test simplify(("a", "b")) == ("a", "b", "c")
+    @test simplify(("d", "e", 7)) == 42
 end
 
 @testset "Test support for multidimensional arrays" begin
