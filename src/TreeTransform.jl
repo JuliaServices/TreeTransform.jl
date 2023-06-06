@@ -1,7 +1,9 @@
 module TreeTransform
 
+include("TopologicalSort.jl")
+
 using StaticArrays
-using Rematch2: topological_sort, fieldnames
+using Rematch2: fieldnames
 
 export bottom_up_rewrite
 

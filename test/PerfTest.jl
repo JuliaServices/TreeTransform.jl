@@ -154,7 +154,7 @@ end
 #     end
 # end
 
-performance_test(expr; detect_cycles=false, max_transformations_per_node=5, recursive=true)
+performance_test(expr; detect_cycles=false, max_transformations_per_node=5, recursive=false)
 
 end
 nothing
