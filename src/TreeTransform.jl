@@ -200,7 +200,7 @@ function count_reachable_nodes(root::T) where { T }
     function count(node::T) where { T }
         node in counted && return
         push!(counted, node)
-        for child in enumerate_children(node)
+        enumerate_children(node) do child
             count(child)
         end
     end
@@ -209,21 +209,35 @@ function count_reachable_nodes(root::T) where { T }
     length(counted)
 end
 
-# Enumerate the children of the given node.
-function enumerate_children(node::T) where { T }
-    names = fieldnames(T)
-    num_fields = length(names)
-    vs = Vector{Any}(undef, num_fields)
-    for i in 1:num_fields
-        @inbounds v = getfield(node, i)
-        @inbounds vs[i] = v
-    end
+# # Enumerate the children of the given node.
+# function enumerate_children(node::T) where { T }
+#     names = fieldnames(T)
+#     num_fields = length(names)
+#     vs = Vector{Any}(undef, num_fields)
+#     for i in 1:num_fields
+#         @inbounds v = getfield(node, i)
+#         @inbounds vs[i] = v
+#     end
 
-    vs
+#     vs
+# end
+
+# Enumerate the children of the given node through a callback.
+function enumerate_children(callback::F, node::T) where { F <: Function, T }
+    for name in fieldnames(T)
+        @inbounds v = getfield(node, name)
+        callback(v)
+    end
 end
 
-function enumerate_children(node::AbstractVector{T}) where { T }
-    node
+# function enumerate_children(node::AbstractVector{T}) where { T }
+#     node
+# end
+
+function enumerate_children(callback::F, node::AbstractVector{T}) where { F <: Function, T }
+    for x in node
+        callback(x)
+    end
 end
 
 function rebuild_node(ctx::RewriteContext, node::T) where { T }
