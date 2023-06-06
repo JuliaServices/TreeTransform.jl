@@ -1,7 +1,9 @@
 module TreeTransform
 
+include("TopologicalSort.jl")
+
 using StaticArrays
-using Rematch2: topological_sort, fieldnames
+using Rematch2: fieldnames
 
 export bottom_up_rewrite
 
@@ -61,6 +63,27 @@ mutable struct RewriteContext
         end
     end
 end
+
+#
+# A pool in which we can allocate and free arrays to avoid GC pressure.
+#
+pool = Vector{Vector{Any}}()
+for i in 1:10
+    push!(pool, Vector{Any}())
+end
+function alloc(size::Int)
+    if isempty(pool)
+        println("allocating new array of size $size")
+        return Vector{Any}(undef, size)
+    end
+    arr = pop!(pool)
+    resize!(arr, size)
+    Vector{Any}(undef, size)
+end
+function free(arr::Vector{Any})
+    push!(pool, arr)
+end
+
 
 function enumerate_children end
 
@@ -200,9 +223,11 @@ function count_reachable_nodes(root::T) where { T }
     function count(node::T) where { T }
         node in counted && return
         push!(counted, node)
-        for child in enumerate_children(node)
+        children = enumerate_children(node)
+        for child in children
             count(child)
         end
+        free(children)
     end
 
     count(root)
@@ -213,7 +238,7 @@ end
 function enumerate_children(node::T) where { T }
     names = fieldnames(T)
     num_fields = length(names)
-    vs = Vector{Any}(undef, num_fields)
+    vs = alloc(num_fields)
     for i in 1:num_fields
         @inbounds v = getfield(node, i)
         @inbounds vs[i] = v
@@ -223,7 +248,9 @@ function enumerate_children(node::T) where { T }
 end
 
 function enumerate_children(node::AbstractVector{T}) where { T }
-    node
+    result = alloc(length(node))
+    copy!(result, node)
+    result
 end
 
 function rebuild_node(ctx::RewriteContext, node::T) where { T }
