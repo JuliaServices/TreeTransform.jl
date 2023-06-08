@@ -23,7 +23,11 @@ function topological_sort(successors::F, roots::AbstractVector{Any}) where { F <
     end
 
     # Prepare a ready set of nodes to output that have no predecessors
-    ready = Any[k for (k, v) in pred_counts if v == 0]
+    ready = Any[]
+    for (k, v) in pred_counts
+        v == 0 && push!(ready, k)
+    end
+
     result = Any[]
     sizehint!(result, length(pred_counts))
 
