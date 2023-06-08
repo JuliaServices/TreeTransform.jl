@@ -7,11 +7,10 @@ function topological_sort(successors::F, roots::AbstractVector{Any}) where { F <
     to_count = Vector{Any}(roots)
 
     # broken into a separate function to permit specialization on F and N.
-    function tocount_successors(node::N) where { N }
+    function count(node::N) where { N }
         successors(node) do succ
             push!(to_count, succ)
             pred_counts[succ] = get(pred_counts, succ, 0) + 1
-            # println("pred count: $(pred_counts[succ]) for $succ")
         end
     end
 
@@ -20,7 +19,7 @@ function topological_sort(successors::F, roots::AbstractVector{Any}) where { F <
         node in counted && continue
         push!(counted, node)
         get!(pred_counts, node, 0) # make sure every node has a pred count
-        tocount_successors(node)
+        count(node)
     end
 
     # Prepare a ready set of nodes to output that have no predecessors

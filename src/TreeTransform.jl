@@ -64,7 +64,7 @@ mutable struct RewriteContext
     end
 end
 
-function enumerate_children_r end
+function enumerate_children end
 
 """
     bottom_up_rewrite(
@@ -172,14 +172,13 @@ function bottom_up_rewrite(
         # transformed the children.  However, when new child nodes are built, they
         # will have to be visited again, recursively.  This avoids the most likely
         # source of stack overflow.
-        nodes = topological_sort(enumerate_children_r, Any[data])
+        nodes = topological_sort(enumerate_children, Any[data])
         ctx.max_transformations = max_transformations_per_node * length(nodes)
         @assert nodes[1] === data
 
         # Transform each node until it reaches a fixed-point.
         any_changes = false
         for node in reverse(nodes)
-            # println("processing node ($(objectid(node))) $node")
             newnode = fixed_point(ctx, node, any_changes)
             if newnode !== node
                 any_changes = true
@@ -202,9 +201,7 @@ function count_reachable_nodes(root::T) where { T }
     function count(node::T) where { T }
         node in counted && return
         push!(counted, node)
-        enumerate_children_r(node) do child
-            count(child)
-        end
+        enumerate_children(count, node)
     end
 
     count(root)
@@ -212,14 +209,14 @@ function count_reachable_nodes(root::T) where { T }
 end
 
 # Enumerate the children of the given node.
-@inline function enumerate_children_r(callback::F, node::T) where { F, T }
+@inline function enumerate_children(callback::F, node::T) where { F, T }
     names = fieldnames(T)
     for name in names
         callback(getfield(node, name))
     end
 end
 
-@inline function enumerate_children_r(callback::F, node::AbstractVector{T}) where { F, T }
+@inline function enumerate_children(callback::F, node::AbstractVector{T}) where { F, T }
     for succ in node
         callback(succ)
     end
@@ -289,7 +286,6 @@ function xform(ctx::RewriteContext, @nospecialize(data))
         end
     end
     result = ctx.xform_fcn(data)
-    # println("  [$(ctx.transformation_count)] xform($data) ===> $result")
     result
 end
 
@@ -323,7 +319,6 @@ function fixed_point(ctx::RewriteContext, node::T, rebuild::Bool) where { T }
         if rewritten2 === rewritten
             ctx.fixed_points[node] = rewritten
             ctx.fixed_points[rewritten] = rewritten
-            # println("  rewritten to ($(objectid(rewritten))) $rewritten")
             return rewritten
         end
         rewritten2 = rebuild_node(ctx, rewritten2)
