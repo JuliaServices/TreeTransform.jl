@@ -64,7 +64,7 @@ mutable struct RewriteContext
     end
 end
 
-function enumerate_children end
+function enumerate_children_r end
 
 """
     bottom_up_rewrite(
@@ -172,7 +172,7 @@ function bottom_up_rewrite(
         # transformed the children.  However, when new child nodes are built, they
         # will have to be visited again, recursively.  This avoids the most likely
         # source of stack overflow.
-        nodes = topological_sort(Any[data])
+        nodes = topological_sort(enumerate_children_r, Any[data])
         ctx.max_transformations = max_transformations_per_node * length(nodes)
         @assert nodes[1] === data
 
@@ -202,7 +202,7 @@ function count_reachable_nodes(root::T) where { T }
     function count(node::T) where { T }
         node in counted && return
         push!(counted, node)
-        for child in enumerate_children(node)
+        enumerate_children_r(node) do child
             count(child)
         end
     end
@@ -212,23 +212,17 @@ function count_reachable_nodes(root::T) where { T }
 end
 
 # Enumerate the children of the given node.
-@inline function enumerate_children(node::T) where { T }
+@inline function enumerate_children_r(callback::F, node::T) where { F, T }
     names = fieldnames(T)
-    num_fields = length(names)
-
-    # Use a static vector to avoid allocations. Since this method is specialized on `T`
-    # and `@inline`, this code compiles into just copying the fields into stack/registers.
-    vs = StaticArrays.SizedVector{num_fields,Any}(nothing for i in 1:num_fields)
-    for i in 1:num_fields
-        @inbounds v = getfield(node, i)
-        @inbounds vs[i] = v
+    for name in names
+        callback(getfield(node, name))
     end
-
-    vs
 end
 
-@inline function enumerate_children(node::AbstractVector{T}) where { T }
-    node
+@inline function enumerate_children_r(callback::F, node::AbstractVector{T}) where { F, T }
+    for succ in node
+        callback(succ)
+    end
 end
 
 function rebuild_node(ctx::RewriteContext, node::T) where { T }
