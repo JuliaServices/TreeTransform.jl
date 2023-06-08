@@ -1,5 +1,7 @@
 module PerfTest
 
+using AutoHashEqualsCached
+
 #
 # This file is not run during testing, but it is used as a metric of performance
 # for our tree transoformation package.
@@ -9,29 +11,29 @@ using TreeTransform
 using Rematch2
 
 abstract type Expression end
-struct Add <: Expression
+@auto_hash_equals_cached struct Add <: Expression
     x::Expression
     y::Expression
 end
-struct Sub <: Expression
+@auto_hash_equals_cached struct Sub <: Expression
     x::Expression
     y::Expression
 end
-struct Neg <: Expression
+@auto_hash_equals_cached struct Neg <: Expression
     x::Expression
 end
-struct Mul <: Expression
-    x::Expression
-    y::Expression
-end
-struct Div <: Expression
+@auto_hash_equals_cached struct Mul <: Expression
     x::Expression
     y::Expression
 end
-struct Const <: Expression
+@auto_hash_equals_cached struct Div <: Expression
+    x::Expression
+    y::Expression
+end
+@auto_hash_equals_cached struct Const <: Expression
     value::Float64
 end
-struct Variable <: Expression
+@auto_hash_equals_cached struct Variable <: Expression
     name::Symbol
 end
 
@@ -146,15 +148,18 @@ function commas(num::Integer)
     return replace(str, r"(?<=[0-9])(?=(?:[0-9]{3})+(?![0-9]))" => ",")
 end
 
+detect_cycles = false
+max_transformations_per_node=5
+recursive = false
+
 # for detect_cycles in [false, true]
 #     for max_transformations_per_node in [0, 5]
-#         for recursive in [false, true]
-#             performance_test(expr; detect_cycles, max_transformations_per_node, recursive)
-#         end
+        for recursive in [false, true]
+            performance_test(expr; detect_cycles, max_transformations_per_node, recursive)
+        end
 #     end
 # end
 
-performance_test(expr; detect_cycles=false, max_transformations_per_node=5, recursive=true)
 
 end
 nothing

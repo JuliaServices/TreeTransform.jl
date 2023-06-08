@@ -1,9 +1,11 @@
 module TreeTransform
 
 using StaticArrays
-using Rematch2: topological_sort, fieldnames
+using Rematch2: fieldnames
 
 export bottom_up_rewrite
+
+include("TopologicalSort.jl")
 
 # const fields only suppored >= Julia 1.8
 macro _const(x)
@@ -170,7 +172,7 @@ function bottom_up_rewrite(
         # transformed the children.  However, when new child nodes are built, they
         # will have to be visited again, recursively.  This avoids the most likely
         # source of stack overflow.
-        nodes = topological_sort(enumerate_children, Any[data])
+        nodes = topological_sort(Any[data])
         ctx.max_transformations = max_transformations_per_node * length(nodes)
         @assert nodes[1] === data
 
@@ -210,10 +212,13 @@ function count_reachable_nodes(root::T) where { T }
 end
 
 # Enumerate the children of the given node.
-function enumerate_children(node::T) where { T }
+@inline function enumerate_children(node::T) where { T }
     names = fieldnames(T)
     num_fields = length(names)
-    vs = Vector{Any}(undef, num_fields)
+
+    # Use a static vector to avoid allocations. Since this method is specialized on `T`
+    # and `@inline`, this code compiles into just copying the fields into stack/registers.
+    vs = StaticArrays.SizedVector{num_fields,Any}(nothing for i in 1:num_fields)
     for i in 1:num_fields
         @inbounds v = getfield(node, i)
         @inbounds vs[i] = v
@@ -222,7 +227,7 @@ function enumerate_children(node::T) where { T }
     vs
 end
 
-function enumerate_children(node::AbstractVector{T}) where { T }
+@inline function enumerate_children(node::AbstractVector{T}) where { T }
     node
 end
 
