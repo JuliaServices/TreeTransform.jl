@@ -1,6 +1,11 @@
 using TreeTransform: bottom_up_rewrite
 using Test
 using Random
-using Rematch2: @match2
+using Rematch2: Rematch2, @match2
+using AutoHashEqualsCached
 
-include("treetransform.jl")
+include("types.jl")
+
+@testset "TreeTransform.jl tests" begin
+    include("treetransform.jl")
+end
