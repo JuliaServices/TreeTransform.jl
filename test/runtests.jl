@@ -7,5 +7,5 @@ using AutoHashEqualsCached
 include("types.jl")
 
 @testset "TreeTransform.jl tests" begin
-    include("treetransform.jl")
+    include("bottom_up_rewrite_test.jl")
 end

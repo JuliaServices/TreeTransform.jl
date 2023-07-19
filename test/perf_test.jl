@@ -151,11 +151,13 @@ end
 detect_cycles = false
 max_transformations_per_node=5
 recursive = false
-
+repeat = 2
 # for detect_cycles in [false, true]
 #     for max_transformations_per_node in [0, 5]
-        for recursive in [false, true]
-            performance_test(expr; detect_cycles, max_transformations_per_node, recursive)
+        for recursive in [true] # [false, true]
+            for _ in 1:repeat
+                performance_test(expr; detect_cycles, max_transformations_per_node, recursive)
+            end
         end
 #     end
 # end
