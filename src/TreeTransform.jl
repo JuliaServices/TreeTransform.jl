@@ -6,7 +6,7 @@ using IterTools: reverse
 
 export bottom_up_rewrite
 
-include("TopologicalSort.jl")
+include("topological_sort.jl")
 
 # const fields only suppored >= Julia 1.8
 macro _const(x)
