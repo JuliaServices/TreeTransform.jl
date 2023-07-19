@@ -2,6 +2,7 @@ module TreeTransform
 
 using StaticArrays
 using Rematch2: fieldnames
+using IterTools: reverse
 
 export bottom_up_rewrite
 
@@ -64,7 +65,7 @@ mutable struct RewriteContext
     end
 end
 
-function enumerate_children end
+function visit_children end
 
 """
     bottom_up_rewrite(
@@ -117,29 +118,21 @@ should return the original node.
 
 The nodes of the data structure can be of arbitrary Julia struct
 types, but the data structure as a whole must be a directed acyclic
-graph, i.e., it must not contain cycles.  The implementation examines
-the set of constructors of the nodes, and the set of fields that
-correspond to the parameters of each constructor.  We only consider
-constructors that are not vararg, have no keyword arguments, and
-whose parameter names all correspond to fields of the node type.
-We take the constructor(s) with the longest parameter list with
-these properties.  We throw an exception if there are more than one
-and they name different fields or in different orders. Finally, we
-use such a unique order to determine the children nodes to which
-we will apply the transformation function.  That constructor will
-be called to rewrite the parent node if any transformed child is
-different from the original child.
+graph, i.e., it must not contain cycles.  The implementation uses
+`Rematch2.fieldnames` to determine which fields to rewrite and
+that need to be passed to a constructor to build a new node.
+The constructor will be called to rewrite the parent node if any
+transformed child is different from the original child.
 
 The implementation keeps track of which nodes have reached a
 fixed-point, so that we can perform the minimum number of
 transformations.  We also keep track of the number of transformations
-applied to each node, so that we can detect cycles of the second
-kind.
+applied, so that we can detect cycles of the second kind.
 
 This facility is less general than the E-graph approach, but it is
 (hopefully) more efficient and easier to use when it applies.  The
 E-graph approach can handle cycles, but it is more expensive and
-requires more work to set up. See also "Metatheory.jl: Fast and
+requires more work to set up.  See also "Metatheory.jl: Fast and
 Elegant Algebraic Computation in Julia with Extensible Equality
 Saturation" by Alessandro Cheli, 2021, <https://arxiv.org/abs/2102.07888>
 """
@@ -172,7 +165,7 @@ function bottom_up_rewrite(
         # transformed the children.  However, when new child nodes are built, they
         # will have to be visited again, recursively.  This avoids the most likely
         # source of stack overflow.
-        nodes = topological_sort(enumerate_children, Any[data])
+        nodes = topological_sort(visit_children, Any[data])
         ctx.max_transformations = max_transformations_per_node * length(nodes)
         @assert nodes[1] === data
 
@@ -201,7 +194,7 @@ function count_reachable_nodes(root::T) where { T }
     function count(node::T) where { T }
         node in counted && return
         push!(counted, node)
-        enumerate_children(count, node)
+        visit_children(count, node)
     end
 
     count(root)
@@ -209,14 +202,14 @@ function count_reachable_nodes(root::T) where { T }
 end
 
 # Enumerate the children of the given node.
-@inline function enumerate_children(callback::F, node::T) where { F, T }
+@inline function visit_children(callback::F, node::T) where { F, T }
     names = fieldnames(T)
     for name in names
         callback(getfield(node, name))
     end
 end
 
-@inline function enumerate_children(callback::F, node::AbstractVector{T}) where { F, T }
+@inline function visit_children(callback::F, node::AbstractVector{T}) where { F, T }
     for succ in node
         callback(succ)
     end

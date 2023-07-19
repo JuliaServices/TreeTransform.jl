@@ -1,14 +1,15 @@
 # Compute a topological ordering of a set of nodes reachable from the given
 # roots by the given successor function.
-function topological_sort(successors::F, roots::AbstractVector{Any}) where { F <: Function }
+function topological_sort(visit_successors, roots::AbstractVector{Any})
     # Compute pred_counts, the number of predecessors of each node
     pred_counts = Dict{Any, Int}()
     counted = Set{Any}()
     to_count = Vector{Any}(roots)
+    sizehint!(to_count, length(to_count) + 2047)
 
     # broken into a separate function to permit specialization on F and N.
     function count(node::N) where { N }
-        successors(node) do succ
+        visit_successors(node) do succ
             push!(to_count, succ)
             pred_counts[succ] = get(pred_counts, succ, 0) + 1
         end
@@ -41,7 +42,7 @@ function topological_sort(successors::F, roots::AbstractVector{Any}) where { F <
 
     # remove the node by decrementing the predecessor counts of its successors
     function remove_node(node::N) where { N }
-        successors(node) do succ
+        visit_successors(node) do succ
             decrement_pred_count(succ)
         end
     end
@@ -54,7 +55,7 @@ function topological_sort(successors::F, roots::AbstractVector{Any}) where { F <
 
     # all of the nodes should have been output by now.  Otherwise there was a cycle.
     if length(pred_counts) != length(result)
-        error("graph had a cycle involving ", N[k for (k, v) in pred_counts if v != 0], ".")
+        error("graph had a cycle involving ", [k for (k, v) in pred_counts if v != 0], ".")
     end
 
     result
