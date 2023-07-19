@@ -42,9 +42,7 @@ function topological_sort(visit_successors::F, roots::AbstractVector{Any}) where
 
     # remove the node by decrementing the predecessor counts of its successors
     function remove_node(node::N) where { N }
-        visit_successors(node) do succ
-            decrement_pred_count(succ)
-        end
+        visit_successors(decrement_pred_count, node)
     end
 
     while !isempty(ready)
