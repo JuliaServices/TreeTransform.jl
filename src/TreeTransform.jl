@@ -263,7 +263,7 @@ end
 
 function rebuild_node(ctx::RewriteContext, node::AbstractArray{T}) where { T }
     isempty(node) && return node
-    rewritten = Base.Broadcast.broadcast(ctx.fixed_point, node)
+    rewritten = ctx.fixed_point.(node)
     for i in eachindex(node)
         @inbounds node[i] !== rewritten[i] && return rewritten
     end
