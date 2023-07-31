@@ -85,7 +85,14 @@ end
     # The expected results of simplification
     expected = Sub(Const(-63.0), Mul(Const(3.0), x))
 
-    @test simplify(expr) == expected
+    for detect_cycles in [false, true]
+        for max_transformations_per_node in [0, 5]
+            for recursive in [false, true]
+                @test bottom_up_rewrite(xform, expr;
+                    detect_cycles, max_transformations_per_node, recursive) == expected
+            end
+        end
+    end
 end
 
 @testset "Check that recursive rewrites occur for new children" begin

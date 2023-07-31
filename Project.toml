@@ -1,10 +1,11 @@
 name = "TreeTransform"
 uuid = "d236873b-e432-4afc-a13d-4d3ddb9f1c9d"
 authors = ["Neal Gafter <neal@gafter.com> and contributors"]
-version = "0.1.3"
+version = "0.2.0"
 
 [deps]
 AutoHashEqualsCached = "887ad303-ad3a-4bc5-965e-507c643d6945"
+IterTools = "c8e1da08-722c-5040-9ed9-7db0dc04731e"
 Rematch2 = "351a7294-9038-49b6-b9cf-e076b05af63f"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 

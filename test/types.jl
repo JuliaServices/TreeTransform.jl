@@ -27,7 +27,7 @@ struct Variable <: Expression
 end
 
 # We make a couple of these mutable so that equality can have a fast path
-# using ===, making the expansionary test below run in a reasonable time.
+# using ===, making the expansionary test run in a reasonable time.
 @auto_hash_equals mutable struct B1; x; y; end
 @auto_hash_equals_cached struct B2; x; y; end
 @auto_hash_equals mutable struct B3; x; y; end
